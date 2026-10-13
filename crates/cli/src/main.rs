@@ -18,10 +18,7 @@ enum Cmd {
         encrypt: bool,
     },
     /// Import a provider export file.
-    Import {
-        provider: String,
-        path: PathBuf,
-    },
+    Import { provider: String, path: PathBuf },
 }
 
 #[tokio::main]

@@ -23,7 +23,9 @@ fn find_available_port(host: &str, start_port: u16) -> KfxResult<u16> {
             return Ok(port);
         }
     }
-    Err(crate::KfxError::Internal("No available port found".to_string()))
+    Err(crate::KfxError::Internal(
+        "No available port found".to_string(),
+    ))
 }
 
 /// Starts the Axum server on the configured host and port.
