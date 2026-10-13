@@ -26,3 +26,10 @@ The key derivation uses SHA-256(hostname + OS + "kinexfluence-v1-salt").
 - The key file itself must be protected by OS-level permissions
 - Users can opt out of encryption entirely
 - Future versions can add user-provided passphrases via PBKDF2/Argon2
+
+## Implementation Notes
+Key derivation is deferred until SQLCipher is properly integrated. The current
+implementation:
+- Has the `use_encryption` config flag in place
+- Logs a debug message when encryption is requested
+- TODO: Implement key derivation once SQLx is built against SQLCipher
