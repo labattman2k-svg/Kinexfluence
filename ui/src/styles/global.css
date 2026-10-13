@@ -1,0 +1,16 @@
+:root {
+  --kfx-bg: #0e0f12;
+  --kfx-fg: #e7e9ee;
+  --kfx-muted: #8b909c;
+  --kfx-accent: #7cc4ff;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--kfx-bg);
+  color: var(--kfx-fg);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.kfx-app { padding: 32px; }
+.tagline { color: var(--kfx-muted); }

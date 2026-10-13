@@ -1,0 +1,17 @@
+[package]
+name = "kfx-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kinexfluence"
+path = "src/main.rs"
+
+[dependencies]
+kfx-core = { path = "../core" }
+kfx-adapters = { path = "../adapters" }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+tokio.workspace = true
+tracing-subscriber.workspace = true

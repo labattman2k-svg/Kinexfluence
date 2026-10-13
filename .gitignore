@@ -1,0 +1,15 @@
+/target
+**/target
+node_modules
+dist
+build
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.log

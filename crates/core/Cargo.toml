@@ -1,0 +1,24 @@
+[package]
+name = "kfx-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+sqlx.workspace = true
+sha2.workspace = true
+hex.workspace = true
+dirs.workspace = true
+gethostname.workspace = true
+tower.workspace = true
+hyper.workspace = true
