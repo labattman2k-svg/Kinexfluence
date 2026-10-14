@@ -2059,6 +2059,7 @@ dependencies = [
 name = "kfx-adapters"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "serde",
  "serde_json",
@@ -2085,6 +2086,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "http-body-util",
  "hyper",
  "serde",
  "serde_json",

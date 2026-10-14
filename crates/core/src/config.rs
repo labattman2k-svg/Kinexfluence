@@ -36,6 +36,7 @@ pub struct Config {
     pub storage: StorageConfig,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for Config {
     fn default() -> Self {
         Self {

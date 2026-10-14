@@ -4,7 +4,7 @@ use std::net::TcpListener;
 use tokio::net::TcpListener as TokioTcpListener;
 use tracing::info;
 
-use crate::Config;
+use crate::{Config, KfxResult};
 
 pub fn router() -> Router {
     Router::new().route("/v1/health", get(health))

@@ -18,3 +18,4 @@ tower-http.workspace = true
 sqlx.workspace = true
 tower.workspace = true
 hyper.workspace = true
+http-body-util.workspace = true
