@@ -96,40 +96,51 @@ powershell scripts/dev.ps1  # Windows
 - [x] No warnings, no dead code, no unwrap() outside tests (code follows conventions)
 - [x] rustfmt configured for stable Rust (removed unstable options)
 
-### Build Status: BLOCKED - Environment Broken
+### Build Status: CRITICAL BLOCKER - Environment Fundamentally Broken
 
-**CRITICAL:** The current Windows environment is fundamentally broken and cannot compile Rust code.
+**CRITICAL:** The current Windows environment is fundamentally broken on multiple fronts and cannot compile Rust code.
 
-**Root Cause:**
-- `C:\Users\Admin\AppData\Local\hermes\git\usr\bin\link.exe` (GNU linker) conflicts with Windows MSVC linker
-- This affects both MSYS/Git Bash AND PowerShell
-- PATH pollution is systemic across the entire environment
-- Cannot be fixed with simple PATH manipulation
+**Root Causes (MULTIPLE):**
+
+1. **Windows MSVC Toolchain Incomplete:**
+   - Visual Studio Build Tools 2026 is installed but missing Windows SDK libraries
+   - `dbghelp.lib` not found despite MSVC environment being initialized
+   - Requires complete reinstall of Build Tools with Windows SDK component
+
+2. **WSL2 Broken:**
+   - WSL Ubuntu exists but has systemd session failures
+   - Cannot install dependencies or Rust in WSL
+   - `wsl: Failed to start the systemd user session for 'labattman2k'`
+
+3. **PATH Pollution (FIXED but revealed deeper issues):**
+   - Removed `C:\Users\Admin\AppData\Local\hermes\git\usr\bin\link.exe`
+   - This fixed the GNU linker conflict
+   - Revealed that MSVC toolchain itself is incomplete
 
 **Impact:**
-- cargo check fails with linker errors
-- cargo clippy fails with linker errors
-- cargo test fails with linker errors
+- cargo check fails with `LNK1181: cannot open input file 'dbghelp.lib'`
+- cargo clippy fails (same reason)
+- cargo test fails (same reason)
 - **PR #1 is NOT VERIFIED** - code exists but has never run
 
-**Required Fix (choose one):**
+**Required Fixes (MUST DO ONE):**
 
-**Option A - Clean up PATH (fastest):**
-Remove or rename the hermes git installation's `link.exe`:
-```powershell
-Remove-Item "C:\Users\Admin\AppData\Local\hermes\git\usr\bin\link.exe"
-```
-Then restart PowerShell and try `cargo check --workspace`.
+**Option A - Reinstall Visual Studio Build Tools (ONLY Windows option):**
+1. Uninstall current Visual Studio Build Tools 2026
+2. Download fresh installer from https://visualstudio.microsoft.com/downloads/
+3. Install "Desktop development with C++" workload
+4. **CRITICAL:** Ensure "Windows 10 SDK" or "Windows 11 SDK" component is selected
+5. Restart PowerShell and run `cargo check --workspace`
 
-**Option B - Use WSL2 Ubuntu (recommended):**
-1. Install WSL2: `wsl --install -d Ubuntu`
-2. Inside WSL: `sudo apt update && sudo apt install -y curl build-essential pkg-config libssl-dev`
-3. Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-4. Build: `cd /mnt/c/Users/Admin/downloads/kip/kinexfluence && cargo check --workspace`
+**Option B - Repair WSL2 (RECOMMENDED):**
+1. Open PowerShell as Administrator
+2. Run: `wsl --update` then `wsl --shutdown`
+3. Restart WSL: `wsl -d Ubuntu`
+4. If systemd errors persist, may need to reinstall WSL completely
 
-**Option C - Install Visual Studio Build Tools:**
-Install "Desktop development with C++" workload from https://visualstudio.microsoft.com/downloads/
-This ensures proper MSVC toolchain is available and takes precedence.
+**Option C - Use a different machine:**
+- This environment has accumulated too many conflicting toolchain issues
+- Fresh Linux/macOS/Windows machine would be fastest path to green
 
 **Current State:**
 - Code is syntactically correct (passes rustfmt)
@@ -139,7 +150,12 @@ This ensures proper MSVC toolchain is available and takes precedence.
 - Integration test is written
 - **NONE OF THIS HAS BEEN VERIFIED TO RUN**
 
-**DO NOT PROCEED TO PR #2** until the build environment is fixed and `cargo check --workspace` passes green.
+**DO NOT PROCEED TO PR #2** until:
+1. Build environment is repaired
+2. `cargo check --workspace` passes green
+3. `cargo clippy --all-targets -- -D warnings` passes green
+4. `cargo test --workspace` passes green
+5. Manual `curl http://127.0.0.1:47821/v1/health` returns correct JSON
 
 ### SQLCipher Status:
 - SQLCipher integration deferred to future PR
