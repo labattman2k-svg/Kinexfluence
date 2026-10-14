@@ -96,12 +96,50 @@ powershell scripts/dev.ps1  # Windows
 - [x] No warnings, no dead code, no unwrap() outside tests (code follows conventions)
 - [x] rustfmt configured for stable Rust (removed unstable options)
 
-### Build Issues:
-- cargo check/clippy/test fail in MSYS environment due to linker conflict
-- Unix 'link' command conflicts with Windows link.exe
-- This is an environment configuration issue, not a code issue
-- Should work in native Windows PowerShell or Linux/macOS environments
-- Code is syntactically correct and should compile in proper environment
+### Build Status: BLOCKED - Environment Broken
+
+**CRITICAL:** The current Windows environment is fundamentally broken and cannot compile Rust code.
+
+**Root Cause:**
+- `C:\Users\Admin\AppData\Local\hermes\git\usr\bin\link.exe` (GNU linker) conflicts with Windows MSVC linker
+- This affects both MSYS/Git Bash AND PowerShell
+- PATH pollution is systemic across the entire environment
+- Cannot be fixed with simple PATH manipulation
+
+**Impact:**
+- cargo check fails with linker errors
+- cargo clippy fails with linker errors
+- cargo test fails with linker errors
+- **PR #1 is NOT VERIFIED** - code exists but has never run
+
+**Required Fix (choose one):**
+
+**Option A - Clean up PATH (fastest):**
+Remove or rename the hermes git installation's `link.exe`:
+```powershell
+Remove-Item "C:\Users\Admin\AppData\Local\hermes\git\usr\bin\link.exe"
+```
+Then restart PowerShell and try `cargo check --workspace`.
+
+**Option B - Use WSL2 Ubuntu (recommended):**
+1. Install WSL2: `wsl --install -d Ubuntu`
+2. Inside WSL: `sudo apt update && sudo apt install -y curl build-essential pkg-config libssl-dev`
+3. Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+4. Build: `cd /mnt/c/Users/Admin/downloads/kip/kinexfluence && cargo check --workspace`
+
+**Option C - Install Visual Studio Build Tools:**
+Install "Desktop development with C++" workload from https://visualstudio.microsoft.com/downloads/
+This ensures proper MSVC toolchain is available and takes precedence.
+
+**Current State:**
+- Code is syntactically correct (passes rustfmt)
+- Dependencies are properly configured
+- Schema migrations are in place
+- Health endpoint is implemented
+- Integration test is written
+- **NONE OF THIS HAS BEEN VERIFIED TO RUN**
+
+**DO NOT PROCEED TO PR #2** until the build environment is fixed and `cargo check --workspace` passes green.
 
 ### SQLCipher Status:
 - SQLCipher integration deferred to future PR
