@@ -35,7 +35,11 @@ async fn main() -> anyhow::Result<()> {
             println!("migrations applied to {}", path.display());
         }
         Cmd::Import { provider, path } => {
-            println!("import {} from {}", provider, path.display());
+            println!(
+                "import {} from {}: adapter not yet wired",
+                provider,
+                path.display()
+            );
             // TODO: wire adapter
         }
     }
