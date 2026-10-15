@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
                 provider,
                 path.display()
             );
-            // TODO: wire adapter
+            // TODO(#3): wire adapter
         }
     }
     Ok(())
