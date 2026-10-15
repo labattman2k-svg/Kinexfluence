@@ -19,7 +19,10 @@ Coverage is a floor, not a goal.
 - Scoring invariants (bounds, monotonicity, determinism) have property tests.
 - Adapter fixtures are snapshot-tested. A fixture change requires reviewer sign-off.
 - All fixtures are sanitized. `scripts/sanitize-fixture.sh` exists for this.
-- Coverage gate: 70% per crate from PR #4 onward. Reported as a PR comment.
+- Coverage gate: 70% per crate from PR #6 onward. Before PR #6, coverage
+  is reported on every PR but does not block merge. Rationale: PR #4
+  (scoring) and PR #5 (probe) churn heavily; gating on churning code
+  incentivizes throwaway tests.
 
 ## 2. Auditability
 
@@ -29,8 +32,11 @@ Every state change is reconstructable. Every decision is traceable.
   emit a row to `event_log`.
 - Migrations are forward-only, numbered, and never edited after merge.
 - Non-trivial decisions become ADRs under `docs/adr`. ADRs are immutable
-  once accepted; superseding requires a new ADR that references the old.
-- Commits use Conventional Commits and are signed.
+  once accepted, except for an "Addendum" section appended at the bottom
+  with a date and a one-line reason. Superseding requires a new ADR that
+  references the old.
+- Commits use Conventional Commits. Signed commits are required from PR #4
+  onward; before that, CI warns but does not fail.
 - Releases publish checksums, an SBOM, and a signed tag.
 
 ## 3. Scalability
@@ -83,7 +89,9 @@ Privacy claims are architectural, not aspirational.
 
 - Rust: rustfmt, clippy -D warnings, no unwrap/expect outside tests.
 - TypeScript: strict mode, no `any` without a documented reason, ESLint clean.
-- PRs under 400 lines of diff, excluding migrations and generated files.
+- PRs target 400 lines of diff (excluding migrations and generated files),
+  with a hard cap of 800 lines. A PR exceeding the cap must be split or
+  justified in the description with the standard it is honoring.
 - Every PR updates `CHANGELOG.md` under `[Unreleased]`.
 - Public functions have doc comments.
 - No commented-out code in main. TODOs link to an issue.
@@ -111,15 +119,16 @@ Logs and traces serve debugging, not surveillance.
 
 | Gate | Local | CI (per PR) | Release |
 |---|---|---|---|
-| Format | rustfmt, prettier | rustfmt --check | â€” |
-| Lint | clippy, eslint | clippy -D warnings, eslint | â€” |
+| Format | rustfmt, prettier | rustfmt --check | — |
+| Lint | clippy, eslint | clippy -D warnings, eslint | — |
 | Unit tests | cargo test | Yes | Yes |
-| Integration | â€” | Yes | Yes |
-| Coverage | â€” | Report + gate (PR #4+) | Reported |
-| Benchmarks | â€” | Budgets | Regression report |
-| Accessibility | â€” | axe-core (UI PRs) | Manual pass |
-| Dependencies | â€” | cargo deny, npm audit | SBOM |
-| Fixture sanitization | pre-commit hook | Yes | â€” |
+| Integration | — | Yes | Yes |
+| Coverage | — | Report + gate (PR #4+) | Reported |
+| Benchmarks | — | Budgets | Regression report |
+| Accessibility | — | axe-core (UI PRs) | Manual pass |
+| Dependencies | — | cargo deny, npm audit | SBOM |
+| `cargo deny` | — | High/critical, with documented allowlist | SBOM |
+| Fixture sanitization | pre-commit hook | Yes | — |
 | Signed commits | Yes | Verified | Tag signed |
 
 ## For coding agents
@@ -129,3 +138,7 @@ Logs and traces serve debugging, not surveillance.
    a separate commit with justification.
 3. Cite the standard. When trading off, name the standard honored and the
    one deferred, and open an issue for the deferral.
+
+Exceptions to any hard gate are recorded in `docs/STANDARDS_EXCEPTIONS.md`
+with a date, a reason, and a linked issue. An exception without an issue
+link is not an exception; it is a violation.
