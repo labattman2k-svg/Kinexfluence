@@ -17,7 +17,7 @@ Targets are reviewed quarterly. Metrics without owners are decoration.
 
 | Metric | Target | Owner | Since |
 |---|---|---|---|
-| Coverage per crate | >= 70% | build | PR #4 |
+| Coverage per crate | >= 70% | build | PR #6 (hard gate) |
 | Capture-to-cart P50 | < 300 ms | core | PR #4 |
 | Score 100 P50 | < 400 ms | core | PR #4 |
 | Cold start | < 800 ms | core | PR #4 |
@@ -34,3 +34,13 @@ Tracked and reviewed on the first Monday of each month:
 - Crash-free session rate (local only, user-reported).
 - Dependencies with known CVEs and time-to-patch.
 - ADRs landed vs. architectural changes made.
+
+## Hard gate timeline
+
+| Gate | Becomes hard at |
+|---|---|
+| rustfmt, clippy, tests | PR #2a |
+| cargo deny (high/critical) | PR #2a |
+| Coverage 70% per crate | PR #6 |
+| Signed commits | PR #4 |
+| axe-core 0 violations | PR #3 (first UI PR) |

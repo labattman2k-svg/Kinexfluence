@@ -15,3 +15,8 @@ anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 tokio.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"
+predicates = "3"

@@ -19,3 +19,7 @@ sqlx.workspace = true
 tower.workspace = true
 hyper.workspace = true
 http-body-util.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+toml = "0.8"

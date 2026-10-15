@@ -13,3 +13,4 @@ build
 !.vscode/extensions.json
 .idea
 *.log
+*.tsbuildinfo

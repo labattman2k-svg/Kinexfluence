@@ -43,3 +43,39 @@ pub async fn serve(config: Config) -> KfxResult<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn health_reports_schema_version_1() -> anyhow::Result<()> {
+        let app = router();
+        let request = Request::builder().uri("/v1/health").body(Body::empty())?;
+        let response = app.oneshot(request).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await?.to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body)?;
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["status"], "ok");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn router_has_only_expected_routes() -> anyhow::Result<()> {
+        let app = router();
+        let request = Request::builder()
+            .uri("/v1/nonexistent")
+            .body(Body::empty())?;
+        let response = app.oneshot(request).await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+}

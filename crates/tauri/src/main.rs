@@ -2,7 +2,7 @@
 
 use tauri::Manager;
 
-use kfx_core::{Config, server};
+use kfx_core::{server, Config};
 
 #[tokio::main]
 async fn main() {
