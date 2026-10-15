@@ -20,3 +20,8 @@ SQLCipher integration requires building SQLx against SQLCipher libraries, which 
 - Logs a debug message when encryption is requested but not yet implemented
 - TODO: Build SQLx against SQLCipher libraries and implement key derivation (ADR 0005)
 - For now, uses standard SQLite with the encryption flag as a placeholder
+
+## Addendum — 2026-10-15
+
+Implementation deferred to PR #2b per ADR 0005. A startup warning fires
+when `use_encryption = true` is set before that PR lands.
