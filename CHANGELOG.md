@@ -11,15 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite for core and CLI (15 tests)
+- Test suite for core and CLI (24 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
+- ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
+  PR #3b; live DOM capture is deferred by ADR 0007
+- `scripts/sanitize-fixture.sh`, a best-effort fixture sanitizer
+- `SECURITY.md` disclosure policy stub, including an explicit note that the
+  address and PGP key are placeholders
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
 
 ### Fixed
+- `crates/tauri` propagates the Tauri run error instead of panicking on it.
+  This was the last `expect` outside tests in the tree
 - CI `js` job: `actions/setup-node` with `cache: npm` resolves the lockfile
   from the repository root, so it failed even after the lockfiles were
   committed. Adds `cache-dependency-path`.
