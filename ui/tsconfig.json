@@ -12,6 +12,8 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src"]
