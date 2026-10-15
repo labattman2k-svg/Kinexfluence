@@ -1,0 +1,99 @@
+{
+  "attachments": [
+    {
+      "external_id": "file-abc123",
+      "filename": "requirements.txt",
+      "mime": "text/plain",
+      "status": "missing"
+    }
+  ],
+  "conversation": {
+    "create_time": 1700000000.0,
+    "external_id": "conv-synthetic-0001",
+    "model": "gpt-4",
+    "title": "Synthetic fixture: code, branch, unknown block",
+    "update_time": 1700000060.0,
+    "url": null
+  },
+  "messages": [
+    {
+      "blocks": [
+        {
+          "text": "You are a helpful assistant.",
+          "type": "text"
+        }
+      ],
+      "create_time": 1700000001.0,
+      "external_id": "n1",
+      "metadata_json": null,
+      "parent_external_id": "n0",
+      "role": "system",
+      "turn_index": 0
+    },
+    {
+      "blocks": [
+        {
+          "text": "Write a Python function that adds two numbers.",
+          "type": "text"
+        }
+      ],
+      "create_time": 1700000005.0,
+      "external_id": "n2",
+      "metadata_json": null,
+      "parent_external_id": "n1",
+      "role": "user",
+      "turn_index": 1
+    },
+    {
+      "blocks": [
+        {
+          "language": "python",
+          "text": "def add(a, b):\n    return a + b",
+          "type": "code"
+        }
+      ],
+      "create_time": 1700000010.0,
+      "external_id": "n3",
+      "metadata_json": null,
+      "parent_external_id": "n2",
+      "role": "assistant",
+      "turn_index": 2
+    },
+    {
+      "blocks": [
+        {
+          "text": "Here is a shorter version.",
+          "type": "text"
+        }
+      ],
+      "create_time": null,
+      "external_id": "n4",
+      "metadata_json": null,
+      "parent_external_id": "n3",
+      "role": "assistant",
+      "turn_index": 3
+    },
+    {
+      "blocks": [],
+      "create_time": 1700000020.0,
+      "external_id": "n5",
+      "metadata_json": {
+        "unknown_blocks": [
+          {
+            "content_type": "tether_browsing_display",
+            "parts": [
+              {
+                "type": "search_result",
+                "url": "https://example.com/result"
+              }
+            ]
+          }
+        ]
+      },
+      "parent_external_id": "n4",
+      "role": "assistant",
+      "turn_index": 4
+    }
+  ],
+  "source": "chatgpt"
+}
