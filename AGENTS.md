@@ -146,7 +146,7 @@ All build issues resolved.
 - SQLCipher integration deferred to future PR
 - Config flag in place but not yet implemented
 - Requires building SQLx against SQLCipher libraries
-- Documented in ADR 0003 and ADR 0005
+- Documented in ADR 0003 and ADR 0006
 
 ### Recent Commits:
 - 000b5a0: feat(core): initialize workspace with health endpoint and SQLCipher
@@ -166,13 +166,22 @@ PR #2 would likely involve:
 
 Before every session, read `docs/STANDARDS.md`. It is the contract.
 
-Three rules for the agent:
+Rules for the agent:
 
 1. Never merge. Propose; the human disposes.
 2. Never disable a check to make a build pass. Fix the check or the code
    in a separate commit, with justification in the message.
 3. When making a trade-off, cite the standard honored and the standard
    deferred. Open an issue for the deferral.
+4. Do not use `git reset` or `git checkout` to rewrite committed history
+   during a working session. Fix forward with a follow-up commit, or ask
+   the maintainer. Interactive rebase is permitted only on a branch that
+   has never been pushed.
+5. Do not modify without a dedicated docs-only commit (never bundled with
+   code): `docs/adr/*` once accepted, `docs/STANDARDS.md`,
+   `docs/QUALITY.md`, `AGENTS.md`, or any migration in
+   `schema/migrations/` that is already committed.
+6. Every TODO comment must reference a GitHub issue: `// TODO(#42): ...`
 
 Read `docs/QUALITY.md` for current metric targets. Hard gates must pass.
 Aspirational gates should not regress.
