@@ -93,16 +93,31 @@ fn parses_minimal_conversation() {
         text_of(&capture.messages[0]),
         Some("You are a helpful assistant.")
     );
+}
 
-    // Trait-contract assertions for the new methods live in this test rather
-    // than in a tenth one, so the suite stays at the brief's pinned count of
-    // 24 (section 8). STANDARDS.md section 1 requires every public function
-    // to have a test, and `matches_url`/`supported_export_versions` are public.
+#[test]
+fn adapter_id_is_chatgpt() {
     assert_eq!(ChatGptAdapter.id(), "chatgpt");
-    assert_eq!(ChatGptAdapter.supported_export_versions(), &[EXPORT_SHAPE]);
+}
+
+#[test]
+fn matches_url_recognizes_chatgpt_domains() {
     assert!(ChatGptAdapter.matches_url("https://chatgpt.com/c/abc"));
     assert!(ChatGptAdapter.matches_url("https://chat.openai.com/c/abc"));
+    assert!(
+        ChatGptAdapter.matches_url("https://CHATGPT.COM/c/abc"),
+        "matching should be case-insensitive"
+    );
     assert!(!ChatGptAdapter.matches_url("https://claude.ai/chat/abc"));
+    assert!(!ChatGptAdapter.matches_url("https://example.com/chatgpt.com"));
+}
+
+#[test]
+fn supported_export_versions_is_nonempty() {
+    let versions = ChatGptAdapter.supported_export_versions();
+
+    assert!(!versions.is_empty());
+    assert!(versions.contains(&EXPORT_SHAPE));
 }
 
 #[test]
@@ -265,4 +280,54 @@ fn golden_fixture_matches() {
          regenerate the golden file and hand-verify it against section 4 of the \
          PR #3a brief."
     );
+}
+
+#[test]
+fn unknown_role_falls_back_to_unknown() {
+    // Defensive path: ChatGPT always sets author.role, but the parser must not
+    // invent one from nothing. The fallback is documented rather than silent.
+    let export = br#"[{
+        "id": "c1",
+        "current_node": "n1",
+        "mapping": {
+            "n1": {
+                "id": "n1",
+                "parent": null,
+                "message": {
+                    "id": "m1",
+                    "content": { "content_type": "text", "parts": ["no role here"] }
+                }
+            }
+        }
+    }]"#;
+
+    let captures = ChatGptAdapter
+        .parse_export(export)
+        .expect("a message without an author should still parse");
+
+    assert_eq!(captures.len(), 1);
+    assert_eq!(
+        captures[0].messages[0].get("role").and_then(Value::as_str),
+        Some("unknown")
+    );
+}
+
+#[test]
+fn conversation_without_id_returns_malformed() {
+    // A conversation we cannot identify cannot be linked or de-duplicated, so
+    // it is malformed rather than silently given a made-up id.
+    let error = ChatGptAdapter
+        .parse_export(br#"[{"mapping":{},"current_node":null}]"#)
+        .expect_err("a conversation with no id should fail");
+
+    match error {
+        AdapterError::MalformedMessage { index, reason } => {
+            assert_eq!(index, 0);
+            assert!(
+                reason.contains("id"),
+                "the reason should name the missing field, got: {reason}"
+            );
+        }
+        other => panic!("expected MalformedMessage, got {other:?}"),
+    }
 }
