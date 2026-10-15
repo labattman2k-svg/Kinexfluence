@@ -1,0 +1,38 @@
+# cargo-deny configuration (https://github.com/EmbarkStudios/cargo-deny)
+# Documented allowlist file per docs/STANDARDS.md §10
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+unsound = "warn"
+yanked = "warn"
+notice = "warn"
+ignore = [
+    # Exceptions to any advisory gate are recorded in docs/STANDARDS_EXCEPTIONS.md
+]
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "AGPL-3.0-or-later",
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "OpenSSL",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-git = []
