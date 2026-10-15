@@ -123,7 +123,7 @@ Logs and traces serve debugging, not surveillance.
 | Lint | clippy, eslint | clippy -D warnings, eslint | — |
 | Unit tests | cargo test | Yes | Yes |
 | Integration | — | Yes | Yes |
-| Coverage | — | Report + gate (PR #4+) | Reported |
+| Coverage | — | Report + gate (PR #6+) | Reported |
 | Benchmarks | — | Budgets | Regression report |
 | Accessibility | — | axe-core (UI PRs) | Manual pass |
 | Dependencies | — | cargo deny, npm audit | SBOM |
