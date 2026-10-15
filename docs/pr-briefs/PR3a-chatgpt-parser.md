@@ -241,9 +241,9 @@ most likely to be wrong are exactly the ones this parser exists to handle:
 - whether a `mapping` node really can carry a null `message`
 
 **Required follow-up before PR #3b:** run the parser against a real
-sanitized export and regenerate the golden file. PR #3b is where a wrong
-assumption becomes expensive, because that is where the parsed shape
-reaches the database.
+sanitized export and regenerate the golden file. Tracked as issue #6.
+PR #3b is where a wrong assumption becomes expensive, because that is where
+the parsed shape reaches the database.
 
 `scripts/sanitize-fixture.sh` is still built in this PR — it is the tool
 that follow-up will use. The agent must not present the synthetic fixture
