@@ -14,8 +14,6 @@ enum Cmd {
     Migrate {
         #[arg(long, default_value = "~/.kinexfluence/kinexfluence.db")]
         db: String,
-        #[arg(long, default_value = "true")]
-        encrypt: bool,
     },
     /// Import a provider export file.
     Import { provider: String, path: PathBuf },
@@ -26,11 +24,11 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Migrate { db, encrypt } => {
+        Cmd::Migrate { db } => {
             let path = shellexpand(&db);
             let storage_config = kfx_core::StorageConfig {
-                path: db,
-                use_encryption: encrypt,
+                path: path.to_string_lossy().to_string(),
+                use_encryption: false,
             };
             let pool = kfx_core::storage::open(&path, &storage_config).await?;
             kfx_core::storage::migrate(&pool).await?;
