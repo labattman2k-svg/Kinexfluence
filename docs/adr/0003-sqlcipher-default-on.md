@@ -23,5 +23,5 @@ SQLCipher integration requires building SQLx against SQLCipher libraries, which 
 
 ## Addendum — 2026-10-15
 
-Implementation deferred to PR #2b per ADR 0005. A startup warning fires
+Implementation deferred to PR #2b per ADR 0006. A startup warning fires
 when `use_encryption = true` is set before that PR lands.

@@ -1,4 +1,4 @@
-# ADR 0005 — Defer SQLCipher implementation to PR #2b
+# ADR 0006 — Defer SQLCipher implementation to PR #2b
 
 Status: accepted
 Date: 2026-10-15
@@ -20,7 +20,7 @@ SQLCipher implementation lands in PR #2b, its own PR, after PR #2a
 logs a warning at startup when `use_encryption = true`:
 
     WARN kfx.storage: use_encryption=true is set but SQLCipher is not
-    yet wired; data is stored in plaintext. See ADR 0005.
+    yet wired; data is stored in plaintext. See ADR 0006.
 
 ## Consequences
 
