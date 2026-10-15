@@ -235,18 +235,28 @@ This is safe because there are no implementors today. `anyhow` stays in
 
 ## 7. Fixture requirements
 
-**There is no real export in this repository and the agent must not
-fabricate one and call it real.** Either:
+**Decision: PR #3a uses a synthetic fixture.** No real export is available,
+and the parser and its tests should not wait on one. The fixture is
+hand-written to match the documented ChatGPT export shape and **must be
+labelled synthetic** — in a comment at the top of the fixture file and in
+`crates/adapters/tests/chatgpt_parser.rs`.
 
-- **(a)** a real (sanitized) ChatGPT export is supplied to the agent before
-  it starts — preferred, because it exercises the format as it actually
-  is; or
-- **(b)** the agent hand-writes a fixture that matches the documented
-  ChatGPT export shape, and the fixture is labelled synthetic in a comment
-  and in the test file.
+This is a real limitation, not a formality. A synthetic fixture tests the
+parser against **our assumptions** about the export format rather than the
+format as it actually is, and the things most likely to be wrong are
+exactly the ones this parser exists to handle:
 
-Do not present a synthetic fixture as a real capture. Which of (a) or (b)
-applied must be stated in the PR report.
+- the precise `content_type` strings in current exports
+- the shape of `parts` for structured content
+- whether a `mapping` node really can carry a null `message`
+
+**Follow-up, required before PR #3b:** run the parser against a real
+sanitized export and regenerate the golden file. Any content type the
+synthetic fixture did not anticipate should surface there. PR #3b is where
+a wrong assumption becomes expensive, because that is where the parsed
+shape reaches the database.
+
+The agent must not present a synthetic fixture as a real capture.
 
 `fixtures/chatgpt/sample-export.json` must contain:
 
@@ -355,7 +365,8 @@ collide).
 
 ## 12. Open items the agent must not silently resolve
 
-- Whether the fixture is real or synthetic (§7) — must be stated.
+- Confirm the fixture is labelled synthetic (§7). It is not a real capture,
+  and the golden file records our assumptions, not verified reality.
 - Any `content_type` encountered but not in the §6 table — list them.
 - Any test skipped, and why.
 - If the diff exceeds 800 lines excluding fixtures and lockfiles: **stop
@@ -437,11 +448,11 @@ Implementation steps:
    Skip nodes whose message is null. Keep timestamps as unix epoch
    numbers, verbatim, including null.
 
-4. Fixture: if a real export has been provided, sanitize it with
-   scripts/sanitize-fixture.sh. Otherwise hand-write a synthetic fixture
-   and label it as synthetic in a comment in the fixture and in the test
-   file. State which you did in your report. It must cover: a code block,
-   a system role, a branch point, an unknown content type, a null
+4. Fixture: hand-write a SYNTHETIC fixture matching the documented ChatGPT
+   export shape. Label it as synthetic in a comment at the top of the
+   fixture file and in crates/adapters/tests/chatgpt_parser.rs. No real
+   export is available; do not claim otherwise. It must cover: a code
+   block, a system role, a branch point, an unknown content type, a null
    create_time, and a null message node.
    Generate the golden file from the parser, then HAND-VERIFY it against
    the brief's section 4 before committing it.
@@ -475,7 +486,7 @@ Do NOT push. Do NOT merge. Report:
   - commit hashes and one-line messages
   - output summary of `cargo test --workspace`
   - total diff line count excluding fixtures and lockfiles
-  - whether the fixture is real or synthetic
+  - confirmation that the synthetic fixture is labelled as such
   - any content_type you met but did not handle
   - any test you skipped and why
   - anything in this brief that turned out to be wrong about the code
