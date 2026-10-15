@@ -39,3 +39,65 @@ pub async fn migrate(pool: &SqlitePool) -> KfxResult<()> {
     sqlx::migrate!("../../schema/migrations").run(pool).await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn open_creates_parent_dirs() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let db_path = temp_dir.path().join("nested").join("dir").join("test.db");
+        let config = StorageConfig {
+            path: db_path.to_string_lossy().to_string(),
+            use_encryption: false,
+        };
+
+        let pool = open(&db_path, &config).await?;
+        assert!(
+            db_path.parent().is_some_and(|p| p.exists()),
+            "Parent directory should be created"
+        );
+        pool.close().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn migrate_is_idempotent() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let db_path = temp_dir.path().join("test.db");
+        let config = StorageConfig {
+            path: db_path.to_string_lossy().to_string(),
+            use_encryption: false,
+        };
+
+        let pool = open(&db_path, &config).await?;
+        migrate(&pool).await?;
+        migrate(&pool).await?; // Second run should not error
+        pool.close().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn migrate_reports_schema_version() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let db_path = temp_dir.path().join("test.db");
+        let config = StorageConfig {
+            path: db_path.to_string_lossy().to_string(),
+            use_encryption: false,
+        };
+
+        let pool = open(&db_path, &config).await?;
+        migrate(&pool).await?;
+
+        let version: i64 = sqlx::query_scalar(
+            "SELECT version FROM _sqlx_migrations ORDER BY version DESC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(version, 1, "Schema version should be 1 after migration");
+        pool.close().await;
+        Ok(())
+    }
+}

@@ -45,3 +45,44 @@ impl Default for Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_expected_values() {
+        let config = Config::default();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 47821);
+        assert_eq!(config.storage.path, "~/.kinexfluence/kinexfluence.db");
+        assert!(config.storage.use_encryption);
+    }
+
+    #[test]
+    fn config_roundtrips_through_toml() -> anyhow::Result<()> {
+        let config = Config::default();
+        let serialized = toml::to_string(&config)?;
+        let parsed: Config = toml::from_str(&serialized)?;
+        assert_eq!(parsed.server.host, config.server.host);
+        assert_eq!(parsed.server.port, config.server.port);
+        assert_eq!(parsed.storage.path, config.storage.path);
+        assert_eq!(parsed.storage.use_encryption, config.storage.use_encryption);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_port_rejected() {
+        let invalid_toml = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 70000
+
+            [storage]
+            path = "test.db"
+            use_encryption = false
+        "#;
+        let result: Result<Config, _> = toml::from_str(invalid_toml);
+        assert!(result.is_err(), "Port > 65535 should be rejected");
+    }
+}
