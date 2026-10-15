@@ -24,6 +24,27 @@ use crate::provider::{AdapterError, ProviderAdapter, RawCapture};
 /// shape rather than inventing a provider-declared version.
 pub const EXPORT_SHAPE: &str = "chatgpt-conversations-json";
 
+/// Lowercased host of a URL, without userinfo or port.
+///
+/// Deliberately a small hand-rolled parse rather than a dependency: the input
+/// is a URL the user is currently on, not untrusted markup, and `None` simply
+/// means "not ours".
+fn host_of(url: &str) -> Option<String> {
+    let after_scheme = url
+        .trim()
+        .split_once("://")
+        .map_or(url.trim(), |(_, rest)| rest);
+    let authority = after_scheme.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?; // drop any userinfo
+    let host = host.split(':').next()?; // drop any port
+
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_ascii_lowercase())
+    }
+}
+
 /// Parses ChatGPT's `conversations.json` export file.
 pub struct ChatGptAdapter;
 
@@ -33,8 +54,17 @@ impl ProviderAdapter for ChatGptAdapter {
     }
 
     fn matches_url(&self, url: &str) -> bool {
-        let lower = url.trim().to_ascii_lowercase();
-        lower.contains("chatgpt.com") || lower.contains("chat.openai.com")
+        // Matched against the host, not the whole URL. A substring check would
+        // let `https://example.com/chatgpt.com` or a `?ref=chatgpt.com` query
+        // parameter claim to be a ChatGPT capture.
+        let Some(host) = host_of(url) else {
+            return false;
+        };
+
+        host == "chatgpt.com"
+            || host.ends_with(".chatgpt.com")
+            || host == "chat.openai.com"
+            || host.ends_with(".chat.openai.com")
     }
 
     fn supported_export_versions(&self) -> &[&'static str] {
