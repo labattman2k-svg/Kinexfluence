@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite for core and CLI (11 tests)
+- Test suite for core and CLI (15 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 
@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
 
 ### Fixed
+- CI `js` job: `actions/setup-node` with `cache: npm` resolves the lockfile
+  from the repository root, so it failed even after the lockfiles were
+  committed. Adds `cache-dependency-path`.
+- CI `rust` job: `cargo clippy --all-targets` builds every workspace member,
+  including `kfx-tauri`, which needs the webkit2gtk/GTK system libraries on
+  Linux. Installs them on the ubuntu leg.
+- `crates/tauri/icons/icon.png` was missing, so `tauri::generate_context!()`
+  panicked on macOS and Linux. Windows resolved the default icon to the
+  existing `icon.ico` and masked it.
 - `cargo deny` config migrated to cargo-deny 0.20; `[licenses] version = 2`
   is required or the `allow` list is silently inert
 - Duplicate ADR numbering: the SQLCipher deferral ADR is now 0006
