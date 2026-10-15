@@ -108,5 +108,51 @@
         }
       }
     }
+  },
+  {
+    "_note": "Second conversation, also SYNTHETIC. Uses conversation_id rather than id and has no unknown content types, so it exercises the id fallback and a null model.",
+    "conversation_id": "conv-synthetic-0002",
+    "title": "Synthetic fixture: second conversation",
+    "create_time": 1700001000.0,
+    "update_time": 1700001030.0,
+    "current_node": "a2",
+    "mapping": {
+      "a0": {
+        "id": "a0",
+        "parent": null,
+        "children": ["a1"],
+        "message": null
+      },
+      "a1": {
+        "id": "a1",
+        "parent": "a0",
+        "children": ["a2"],
+        "message": {
+          "id": "b1",
+          "author": { "role": "user" },
+          "create_time": 1700001001.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["What is a haiku?"]
+          }
+        }
+      },
+      "a2": {
+        "id": "a2",
+        "parent": "a1",
+        "children": [],
+        "message": {
+          "id": "b2",
+          "author": { "role": "assistant" },
+          "create_time": 1700001002.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Five syllables first,\nseven in the middle line,\nfive again to close."
+            ]
+          }
+        }
+      }
+    }
   }
 ]

@@ -3,13 +3,9 @@
 //! Parses the provider's `conversations.json` into the canonical capture
 //! shape. Pure library work: no database access, no network access.
 //!
-//! Known limitations, recorded in the ADR 0007 addendum:
-//!
-//! * Only the active path of a branched conversation is captured. Siblings
-//!   off `current_node` are ignored.
-//! * Only the first conversation in the export is captured, because
-//!   [`RawCapture`] carries exactly one conversation. A real export holds
-//!   many, so this is reported as an open item rather than hidden.
+//! Known limitation, recorded in the ADR 0007 addendum: only the active path
+//! of a branched conversation is captured. Siblings off `current_node` are
+//! ignored.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -44,24 +40,15 @@ impl ProviderAdapter for ChatGptAdapter {
         &[EXPORT_SHAPE]
     }
 
-    fn parse_export(&self, bytes: &[u8]) -> Result<RawCapture, AdapterError> {
+    fn parse_export(&self, bytes: &[u8]) -> Result<Vec<RawCapture>, AdapterError> {
         let conversations: Vec<RawConversation> =
             serde_json::from_slice(bytes).map_err(|_| AdapterError::InvalidFormat)?;
 
-        if conversations.len() > 1 {
-            warn!(
-                target: "kfx.adapters.chatgpt",
-                total = conversations.len(),
-                "export holds more than one conversation; RawCapture carries one, parsing the first"
-            );
-        }
-
-        let conversation = conversations
+        conversations
             .into_iter()
-            .next()
-            .ok_or(AdapterError::InvalidFormat)?;
-
-        parse_conversation(0, conversation)?.into_raw()
+            .enumerate()
+            .map(|(index, conversation)| parse_conversation(index, conversation)?.into_raw())
+            .collect()
     }
 }
 
@@ -153,7 +140,9 @@ fn active_path<'a>(
             );
             break;
         }
-        let Some(node) = mapping.get(&id) else { break };
+        let Some(node) = mapping.get(&id) else {
+            break;
+        };
         cursor = node.parent.clone();
         path.push((id, node));
     }

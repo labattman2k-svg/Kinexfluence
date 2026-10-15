@@ -16,10 +16,19 @@ use serde_json::Value;
 const FIXTURE: &str = include_str!("../../../fixtures/chatgpt/sample-export.json");
 const GOLDEN: &str = include_str!("../../../fixtures/chatgpt/sample-export.expected.json");
 
-fn parse_fixture() -> RawCapture {
+/// Every capture in the fixture, in export order.
+fn parse_fixture() -> Vec<RawCapture> {
     ChatGptAdapter
         .parse_export(FIXTURE.as_bytes())
         .expect("the synthetic fixture should parse")
+}
+
+/// The first capture, for tests that only exercise the branching conversation.
+fn first_fixture() -> RawCapture {
+    parse_fixture()
+        .into_iter()
+        .next()
+        .expect("the fixture holds at least one conversation")
 }
 
 fn text_of(message: &Value) -> Option<&str> {
@@ -39,9 +48,16 @@ fn all_text(capture: &RawCapture) -> String {
         .join("\n")
 }
 
+fn external_id(capture: &RawCapture) -> Option<&str> {
+    capture
+        .conversation
+        .get("external_id")
+        .and_then(Value::as_str)
+}
+
 #[test]
 fn parses_minimal_conversation() {
-    let capture = parse_fixture();
+    let capture = first_fixture();
 
     assert_eq!(capture.source, "chatgpt");
     assert_eq!(
@@ -90,8 +106,38 @@ fn parses_minimal_conversation() {
 }
 
 #[test]
+fn parses_multiple_conversations() {
+    let captures = parse_fixture();
+
+    assert_eq!(
+        captures.len(),
+        2,
+        "every conversation in the export must be captured, not just the first"
+    );
+
+    assert_eq!(external_id(&captures[0]), Some("conv-synthetic-0001"));
+    assert_eq!(
+        external_id(&captures[1]),
+        Some("conv-synthetic-0002"),
+        "conversation_id should be used when id is absent"
+    );
+
+    assert_eq!(
+        captures[1].conversation.get("model"),
+        Some(&Value::Null),
+        "a conversation without default_model_slug should report a null model"
+    );
+
+    assert_eq!(captures[1].messages.len(), 2);
+    assert_eq!(
+        text_of(&captures[1].messages[1]),
+        Some("Five syllables first,\nseven in the middle line,\nfive again to close.")
+    );
+}
+
+#[test]
 fn parses_code_block_as_content_block() {
-    let capture = parse_fixture();
+    let capture = first_fixture();
 
     let code = capture
         .messages
@@ -111,7 +157,7 @@ fn parses_code_block_as_content_block() {
 
 #[test]
 fn walks_branch_to_current_node() {
-    let capture = parse_fixture();
+    let capture = first_fixture();
     let text = all_text(&capture);
 
     assert_eq!(
@@ -131,7 +177,7 @@ fn walks_branch_to_current_node() {
 
 #[test]
 fn unknown_content_type_preserved_in_metadata() {
-    let capture = parse_fixture();
+    let capture = first_fixture();
 
     let last = capture.messages.last().expect("at least one message");
     let unknown = last
@@ -157,7 +203,7 @@ fn unknown_content_type_preserved_in_metadata() {
 
 #[test]
 fn null_create_time_handled() {
-    let capture = parse_fixture();
+    let capture = first_fixture();
 
     let message = capture
         .messages
@@ -201,15 +247,15 @@ fn missing_mapping_returns_malformed_message() {
 
 #[test]
 fn idempotent_parse() {
-    let first = serde_json::to_value(parse_fixture()).expect("capture serializes");
-    let second = serde_json::to_value(parse_fixture()).expect("capture serializes");
+    let first = serde_json::to_value(parse_fixture()).expect("captures serialize");
+    let second = serde_json::to_value(parse_fixture()).expect("captures serialize");
 
     assert_eq!(first, second, "parsing the same bytes twice must be stable");
 }
 
 #[test]
 fn golden_fixture_matches() {
-    let actual = serde_json::to_value(parse_fixture()).expect("capture serializes");
+    let actual = serde_json::to_value(parse_fixture()).expect("captures serialize");
     let expected: Value =
         serde_json::from_str(GOLDEN).expect("the golden file should be valid JSON");
 

@@ -51,11 +51,15 @@ pub trait ProviderAdapter: Send + Sync {
     /// Whether this adapter handles captures taken from `url`.
     fn matches_url(&self, url: &str) -> bool;
 
-    /// Parse an export file.
+    /// Parse an export file into one capture per conversation.
+    ///
+    /// Returns a vector rather than a single capture because a real export
+    /// holds many conversations; returning only the first would silently
+    /// discard the rest.
     ///
     /// Implementations must not panic on untrusted input, and must not
     /// perform network access.
-    fn parse_export(&self, bytes: &[u8]) -> Result<RawCapture, AdapterError>;
+    fn parse_export(&self, bytes: &[u8]) -> Result<Vec<RawCapture>, AdapterError>;
 
     /// Export shapes this adapter accepts.
     ///
