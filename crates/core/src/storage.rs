@@ -13,7 +13,7 @@ pub async fn open(path: &Path, config: &StorageConfig) -> KfxResult<SqlitePool> 
         warn!(
             target: "kfx.storage",
             "use_encryption=true is set but SQLCipher is not yet wired; \
-             data is stored in plaintext. See ADR 0005."
+             data is stored in plaintext. See ADR 0006."
         );
     }
 
