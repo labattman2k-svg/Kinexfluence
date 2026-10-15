@@ -35,6 +35,11 @@ Every state change is reconstructable. Every decision is traceable.
   once accepted, except for an "Addendum" section appended at the bottom
   with a date and a one-line reason. Superseding requires a new ADR that
   references the old.
+- Brief-pinned contracts (data shapes, trait signatures, wire formats
+  pinned in a PR brief) are recorded in the brief itself, not in an ADR.
+  ADRs are for decisions that survive multiple PRs or constrain future
+  choices. If a brief contract becomes load-bearing beyond its PR,
+  promote it to an ADR then.
 - Commits use Conventional Commits. Signed commits are required from PR #4
   onward; before that, CI warns but does not fail.
 - Releases publish checksums, an SBOM, and a signed tag.
