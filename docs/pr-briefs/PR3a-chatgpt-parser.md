@@ -22,6 +22,7 @@ parser actually produces. See §11 for the migration note it must inherit.
 | `SECURITY.md` | not mentioned | **Create stub** |
 | `crates/tauri/src/main.rs` | not in scope | **Add** — fix the `.expect()` finding from PR #1 |
 | Fixture source | real export | **Synthetic** (decision, see §7) |
+| Golden file | committed but unverified | **Test 9 added** — `golden_fixture_matches`, so the golden file is asserted, not just stored |
 
 ---
 
@@ -274,17 +275,15 @@ whatever the parser emitted is not evidence.
 6. `malformed_json_returns_invalid_format` — `AdapterError::InvalidFormat`
 7. `missing_mapping_returns_malformed_message` — clean error with index
 8. `idempotent_parse` — same bytes twice, identical output
+9. `golden_fixture_matches` — `parse_export(sample-export.json)`
+   deep-equals `sample-export.expected.json`
 
-Suite goes from 15 tests to **23**.
+Suite goes from 15 tests to **24**.
 
-> **Reviewer note, unresolved:** `sample-export.expected.json` is a
-> deliverable here, but no test in this list asserts against it. As
-> written, the golden file is never compared to anything, so it can drift
-> silently the moment the parser changes. Either add a ninth test
-> (`golden_fixture_matches`, deep-equality against the golden file) —
-> taking the suite to 24 — or drop the golden file as a deliverable. Flag
-> this before the agent runs; do not leave a committed artifact that
-> nothing verifies.
+Test 9 exists because the golden file is a deliverable. Without it, the
+committed `sample-export.expected.json` would be compared against nothing
+and could drift silently the moment the parser changed. The golden file
+and its test stand or fall together: if either is dropped, drop both.
 
 ---
 
@@ -292,7 +291,7 @@ Suite goes from 15 tests to **23**.
 
 - `cargo fmt --all -- --check` passes
 - `cargo clippy --all-targets -- -D warnings` passes
-- `cargo test --workspace` passes with **23 tests**
+- `cargo test --workspace` passes with **24 tests**
 - `cargo deny check` passes
 - `scripts/sanitize-fixture.sh` is executable and supports `--help`
 - `SECURITY.md` exists with a disclosure address and a "no bug bounty" note
@@ -463,7 +462,7 @@ Before starting:
 6. git switch -c feat/chatgpt-parser
 
 Current state:
-- 15 tests pass on main. Your work adds 8, for 23 total.
+- 15 tests pass on main. Your work adds 9, for 24 total.
 - ADR 0007 already exists. Do NOT create it. Do NOT create a new ADR.
   Record the canonical shape as an "## Addendum — 2026-10-15" section at
   the bottom of ADR 0007 (STANDARDS section 2 permits addenda, nothing
@@ -527,8 +526,9 @@ Implementation steps:
      epoch numbers, verbatim, including null.
    - mod.rs: public exports.
 
-3. Test list: the eight tests named in the brief's section 8, named
-   exactly.
+3. Test list: the nine tests named in the brief's section 8, named
+   exactly, including golden_fixture_matches — deep equality against
+   fixtures/chatgpt/sample-export.expected.json.
 
 4. Fixture: hand-write a SYNTHETIC fixture matching the documented ChatGPT
    export shape. Label it synthetic in a comment at the top of the fixture
@@ -575,7 +575,7 @@ Verify before each commit:
   cargo test -p kfx-adapters
 
 Verify before reporting:
-  cargo test --workspace          # must be 23 passing
+  cargo test --workspace          # must be 24 passing
   cargo deny check
   git diff main..HEAD --stat      # under 800 lines excluding fixtures and
                                   # lockfiles
