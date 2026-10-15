@@ -5,7 +5,7 @@ use tauri::Manager;
 use kfx_core::{server, Config};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> tauri::Result<()> {
     let config = Config::default();
 
     // Spawn the core server in the background
@@ -22,5 +22,4 @@ async fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Kinexfluence");
 }
