@@ -159,3 +159,30 @@ PR #2 would likely involve:
 - Implementing the normalizer to parse raw provider exports
 - Adding provider adapters for ChatGPT and Claude
 - Setting up the scoring infrastructure with the 7 signals
+
+---
+
+## Standards
+
+Before every session, read `docs/STANDARDS.md`. It is the contract.
+
+Three rules for the agent:
+
+1. Never merge. Propose; the human disposes.
+2. Never disable a check to make a build pass. Fix the check or the code
+   in a separate commit, with justification in the message.
+3. When making a trade-off, cite the standard honored and the standard
+   deferred. Open an issue for the deferral.
+
+Read `docs/QUALITY.md` for current metric targets. Hard gates must pass.
+Aspirational gates should not regress.
+
+## Known Windows/Tauri gotchas
+
+- Tauri v2 requires `use tauri::Manager;` for `app.manage()`,
+  `use tauri::Emitter;` for `app.emit()`, and `use tauri::Listener;`
+  for `app.listen()`. These are not in the prelude.
+- Tauri Windows builds require a valid multi-layer `icon.ico` (v3.00 format).
+  Regenerate with `cargo tauri icon <path-to-1024px-png>` if RC2175 appears.
+- Do all Rust commands from PowerShell, not Git Bash. Git Bash puts GNU
+  tools ahead of MSVC tools on PATH and reintroduces the linker conflict.
