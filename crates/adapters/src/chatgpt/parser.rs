@@ -7,6 +7,7 @@
 //! of a branched conversation is captured. Siblings off `current_node` are
 //! ignored.
 
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::warn;
@@ -79,7 +80,7 @@ fn parse_conversation(
     let mut messages = Vec::new();
     let mut attachments = Vec::new();
 
-    for (node_id, node) in active_path(&mapping, raw.current_node.as_deref()) {
+    for (node_id, raw_node, node) in active_path(&mapping, raw.current_node.as_deref()) {
         let Some(message) = node.message.as_ref() else {
             // Structural placeholder, not an error.
             continue;
@@ -90,7 +91,7 @@ fn parse_conversation(
         attachments.extend(attachments_for(message));
 
         messages.push(CaptureMessage {
-            external_id: node_id.clone(),
+            external_id: node_id,
             parent_external_id: node.parent.clone(),
             role: message
                 .author
@@ -101,6 +102,9 @@ fn parse_conversation(
             create_time: message.create_time.clone(),
             blocks,
             metadata_json,
+            // The mapping node verbatim, so PR #3b can fill `message.raw_json`
+            // without re-parsing the export.
+            raw: raw_node.clone(),
         });
     }
 
@@ -125,11 +129,11 @@ fn parse_conversation(
 /// The walk is bounded by the mapping size so a malformed export containing a
 /// `parent` cycle terminates instead of looping forever.
 fn active_path<'a>(
-    mapping: &'a HashMap<String, RawNode>,
+    mapping: &'a HashMap<String, Value>,
     current_node: Option<&str>,
-) -> Vec<(String, &'a RawNode)> {
+) -> Vec<(String, &'a Value, RawNode)> {
     let limit = mapping.len() + 1;
-    let mut path: Vec<(String, &RawNode)> = Vec::new();
+    let mut path: Vec<(String, &Value, RawNode)> = Vec::new();
     let mut cursor = current_node.map(str::to_owned);
 
     while let Some(id) = cursor {
@@ -140,11 +144,20 @@ fn active_path<'a>(
             );
             break;
         }
-        let Some(node) = mapping.get(&id) else {
+        let Some(raw_node) = mapping.get(&id) else {
+            break;
+        };
+        // Deserialized from a borrow so the raw node can be kept verbatim
+        // without being cloned until the message is built.
+        let Ok(node) = RawNode::deserialize(raw_node) else {
+            warn!(
+                target: "kfx.adapters.chatgpt",
+                "mapping node did not match the expected shape; chain ends here"
+            );
             break;
         };
         cursor = node.parent.clone();
-        path.push((id, node));
+        path.push((id, raw_node, node));
     }
 
     path.reverse();
@@ -160,7 +173,7 @@ fn blocks_for(message: &RawMessage) -> (Vec<ContentBlock>, Option<CaptureMetadat
         return (Vec::new(), None);
     }
 
-    let parsed: RawContent = match serde_json::from_value(message.content.clone()) {
+    let parsed: RawContent = match RawContent::deserialize(&message.content) {
         Ok(content) => content,
         Err(_) => {
             warn!(

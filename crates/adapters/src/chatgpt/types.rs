@@ -37,8 +37,10 @@ pub struct RawConversation {
     pub default_model_slug: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// Kept as raw JSON rather than a typed map so each node can be preserved
+    /// verbatim into a message's `raw` field, with none of its fields dropped.
     #[serde(default)]
-    pub mapping: Option<HashMap<String, RawNode>>,
+    pub mapping: Option<HashMap<String, Value>>,
     #[serde(default)]
     pub current_node: Option<String>,
 }
@@ -156,6 +158,11 @@ pub struct CaptureMessage {
     pub blocks: Vec<ContentBlock>,
     /// Always present, `null` when there was nothing unknown.
     pub metadata_json: Option<CaptureMetadata>,
+    /// The verbatim source mapping node this message was built from.
+    ///
+    /// Carried so PR #3b can populate `message.raw_json`, which ADR 0007
+    /// requires, without re-parsing the whole export.
+    pub raw: Value,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
