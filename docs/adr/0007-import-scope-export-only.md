@@ -41,3 +41,54 @@ Import supports **provider export files only**. Live DOM capture is deferred.
 - Attachment rows cannot be fully populated until the `attachment.status`
   migration lands, which is scheduled for the same PR as the importer.
 - Drag-and-drop import in the Atlas UI is deferred to a later PR.
+
+## Addendum — 2026-10-15
+
+**Canonical capture shape.** PR #3a pins the shape a parsed conversation
+takes, so PR #3b can be written against it. It is recorded as an addendum
+rather than a new ADR because it is a contract internal to one PR, per
+`docs/STANDARDS.md` §2 as clarified on 2026-10-15. If it turns out to be
+load-bearing beyond PR #3b, it should be promoted to its own ADR.
+
+Each captured message carries `external_id` (the mapping node id),
+`parent_external_id`, `role`, `turn_index`, `create_time`, `blocks`,
+`metadata_json`, and `raw`.
+
+`turn_index` is the position in reconstructed chronological order over
+emitted messages, starting at 0. A node whose `message` is `null` is a
+structural placeholder and is skipped, so the path's placeholders do not
+consume an index.
+
+`blocks` is a list of typed blocks: `text`, `code` (with an optional
+`language`), and `execution_output`. A content type the parser does not
+recognise produces no block; the raw block is preserved verbatim in
+`metadata_json.unknown_blocks` and a WARN is logged. An unrecognised block
+never fails an import.
+
+Timestamps remain unix epoch numbers exactly as exported, including null.
+Converting them to a SQLite `DATETIME` is PR #3b's responsibility, because
+that is where the database's expectations apply.
+
+`attachments[].status` is always `"missing"`: attachment references are
+recorded, never fetched.
+
+**Limitations accepted in PR #3a, one open.** Only the active path is
+captured; siblings off `current_node` are ignored, which section
+"Consequences" already records.
+
+The earlier limitation on conversation count is resolved: `parse_export` now
+returns one capture per conversation rather than only the first, so a real
+export no longer loses everything but its first entry.
+
+**Fixture status.** The parser's tests run against a synthetic fixture, not a
+real capture, so they hold the parser to our assumptions about the format
+rather than to the format itself. Validating against a real sanitized export
+is issue #6 and is required before PR #3b.
+
+**Raw message JSON is now carried.** Section "Decision" says per-message raw
+JSON is kept in `message.raw_json`. The canonical shape now includes a `raw`
+field holding the source mapping node verbatim, so PR #3b can populate that
+column from the parser's output without re-parsing the export and this
+addendum's earlier warning no longer applies. Storing the node verbatim is
+why the raw export type keeps `mapping` as JSON rather than as a typed map:
+a typed node would silently drop any field the provider adds.

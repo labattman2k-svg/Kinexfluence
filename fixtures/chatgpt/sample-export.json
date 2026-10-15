@@ -1,0 +1,158 @@
+[
+  {
+    "_note": "SYNTHETIC FIXTURE - hand-written to match the documented ChatGPT export shape. This is NOT a real capture. Validating against a real sanitized export is tracked as issue #6.",
+    "id": "conv-synthetic-0001",
+    "title": "Synthetic fixture: code, branch, unknown block",
+    "create_time": 1700000000.0,
+    "update_time": 1700000060.0,
+    "default_model_slug": "gpt-4",
+    "current_node": "n5",
+    "mapping": {
+      "n0": {
+        "id": "n0",
+        "parent": null,
+        "children": ["n1"],
+        "message": null
+      },
+      "n1": {
+        "id": "n1",
+        "parent": "n0",
+        "children": ["n2"],
+        "message": {
+          "id": "m1",
+          "author": { "role": "system" },
+          "create_time": 1700000001.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["You are a helpful assistant."]
+          }
+        }
+      },
+      "n2": {
+        "id": "n2",
+        "parent": "n1",
+        "children": ["n3"],
+        "message": {
+          "id": "m2",
+          "author": { "role": "user" },
+          "create_time": 1700000005.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Write a Python function that adds two numbers."]
+          },
+          "metadata": {
+            "attachments": [
+              {
+                "id": "file-abc123",
+                "name": "requirements.txt",
+                "mime_type": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "n3": {
+        "id": "n3",
+        "parent": "n2",
+        "children": ["n4"],
+        "message": {
+          "id": "m3",
+          "author": { "role": "assistant" },
+          "create_time": 1700000010.0,
+          "content": {
+            "content_type": "code",
+            "parts": ["```python\ndef add(a, b):\n    return a + b\n```"]
+          }
+        }
+      },
+      "n4": {
+        "id": "n4",
+        "parent": "n3",
+        "children": ["n5", "n6"],
+        "message": {
+          "id": "m4",
+          "author": { "role": "assistant" },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Here is a shorter version."]
+          }
+        }
+      },
+      "n5": {
+        "id": "n5",
+        "parent": "n4",
+        "children": [],
+        "message": {
+          "id": "m5",
+          "author": { "role": "assistant" },
+          "create_time": 1700000020.0,
+          "content": {
+            "content_type": "tether_browsing_display",
+            "parts": [{ "type": "search_result", "url": "https://example.com/result" }]
+          }
+        }
+      },
+      "n6": {
+        "id": "n6",
+        "parent": "n4",
+        "children": [],
+        "message": {
+          "id": "m6",
+          "author": { "role": "user" },
+          "create_time": 1700000030.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Actually, add type hints."]
+          }
+        }
+      }
+    }
+  },
+  {
+    "_note": "Second conversation, also SYNTHETIC. Uses conversation_id rather than id and has no unknown content types, so it exercises the id fallback and a null model.",
+    "conversation_id": "conv-synthetic-0002",
+    "title": "Synthetic fixture: second conversation",
+    "create_time": 1700001000.0,
+    "update_time": 1700001030.0,
+    "current_node": "a2",
+    "mapping": {
+      "a0": {
+        "id": "a0",
+        "parent": null,
+        "children": ["a1"],
+        "message": null
+      },
+      "a1": {
+        "id": "a1",
+        "parent": "a0",
+        "children": ["a2"],
+        "message": {
+          "id": "b1",
+          "author": { "role": "user" },
+          "create_time": 1700001001.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["What is a haiku?"]
+          }
+        }
+      },
+      "a2": {
+        "id": "a2",
+        "parent": "a1",
+        "children": [],
+        "message": {
+          "id": "b2",
+          "author": { "role": "assistant" },
+          "create_time": 1700001002.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Five syllables first,\nseven in the middle line,\nfive again to close."
+            ]
+          }
+        }
+      }
+    }
+  }
+]

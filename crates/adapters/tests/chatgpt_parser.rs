@@ -1,0 +1,333 @@
+//! Fixture-driven tests for the ChatGPT export parser.
+//!
+//! The fixture at `fixtures/chatgpt/sample-export.json` is SYNTHETIC. It was
+//! hand-written to match the documented ChatGPT export shape; it is not a
+//! real capture, and it is labelled as such inside the file itself.
+//!
+//! That is a real limitation: these tests hold the parser to our assumptions
+//! about the format rather than to the format itself. Validating against a
+//! real sanitized export is tracked as issue #6 and must happen before
+//! PR #3b, which is where a wrong assumption reaches the database.
+
+use kfx_adapters::chatgpt::{ChatGptAdapter, EXPORT_SHAPE};
+use kfx_adapters::provider::{AdapterError, ProviderAdapter, RawCapture};
+use serde_json::Value;
+
+const FIXTURE: &str = include_str!("../../../fixtures/chatgpt/sample-export.json");
+const GOLDEN: &str = include_str!("../../../fixtures/chatgpt/sample-export.expected.json");
+
+/// Every capture in the fixture, in export order.
+fn parse_fixture() -> Vec<RawCapture> {
+    ChatGptAdapter
+        .parse_export(FIXTURE.as_bytes())
+        .expect("the synthetic fixture should parse")
+}
+
+/// The first capture, for tests that only exercise the branching conversation.
+fn first_fixture() -> RawCapture {
+    parse_fixture()
+        .into_iter()
+        .next()
+        .expect("the fixture holds at least one conversation")
+}
+
+fn text_of(message: &Value) -> Option<&str> {
+    message
+        .get("blocks")?
+        .as_array()?
+        .iter()
+        .find_map(|block| block.get("text").and_then(Value::as_str))
+}
+
+fn all_text(capture: &RawCapture) -> String {
+    capture
+        .messages
+        .iter()
+        .filter_map(text_of)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn external_id(capture: &RawCapture) -> Option<&str> {
+    capture
+        .conversation
+        .get("external_id")
+        .and_then(Value::as_str)
+}
+
+#[test]
+fn parses_minimal_conversation() {
+    let capture = first_fixture();
+
+    assert_eq!(capture.source, "chatgpt");
+    assert_eq!(
+        capture.messages.len(),
+        5,
+        "the active path holds five real messages plus one null-message placeholder"
+    );
+
+    let roles: Vec<&str> = capture
+        .messages
+        .iter()
+        .map(|message| {
+            message
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(
+        roles,
+        vec!["system", "user", "assistant", "assistant", "assistant"]
+    );
+
+    for (index, message) in capture.messages.iter().enumerate() {
+        assert_eq!(
+            message.get("turn_index").and_then(Value::as_u64),
+            Some(index as u64),
+            "turn_index should count emitted messages from 0"
+        );
+    }
+
+    assert_eq!(
+        text_of(&capture.messages[0]),
+        Some("You are a helpful assistant.")
+    );
+}
+
+#[test]
+fn adapter_id_is_chatgpt() {
+    assert_eq!(ChatGptAdapter.id(), "chatgpt");
+}
+
+#[test]
+fn matches_url_recognizes_chatgpt_domains() {
+    assert!(ChatGptAdapter.matches_url("https://chatgpt.com/c/abc"));
+    assert!(ChatGptAdapter.matches_url("https://chat.openai.com/c/abc"));
+    assert!(
+        ChatGptAdapter.matches_url("https://CHATGPT.COM/c/abc"),
+        "matching should be case-insensitive"
+    );
+    assert!(!ChatGptAdapter.matches_url("https://claude.ai/chat/abc"));
+    assert!(!ChatGptAdapter.matches_url("https://example.com/chatgpt.com"));
+}
+
+#[test]
+fn supported_export_versions_is_nonempty() {
+    let versions = ChatGptAdapter.supported_export_versions();
+
+    assert!(!versions.is_empty());
+    assert!(versions.contains(&EXPORT_SHAPE));
+}
+
+#[test]
+fn parses_multiple_conversations() {
+    let captures = parse_fixture();
+
+    assert_eq!(
+        captures.len(),
+        2,
+        "every conversation in the export must be captured, not just the first"
+    );
+
+    assert_eq!(external_id(&captures[0]), Some("conv-synthetic-0001"));
+    assert_eq!(
+        external_id(&captures[1]),
+        Some("conv-synthetic-0002"),
+        "conversation_id should be used when id is absent"
+    );
+
+    assert_eq!(
+        captures[1].conversation.get("model"),
+        Some(&Value::Null),
+        "a conversation without default_model_slug should report a null model"
+    );
+
+    assert_eq!(captures[1].messages.len(), 2);
+    assert_eq!(
+        text_of(&captures[1].messages[1]),
+        Some("Five syllables first,\nseven in the middle line,\nfive again to close.")
+    );
+}
+
+#[test]
+fn parses_code_block_as_content_block() {
+    let capture = first_fixture();
+
+    let code = capture
+        .messages
+        .iter()
+        .filter_map(|message| message.get("blocks").and_then(Value::as_array))
+        .flatten()
+        .find(|block| block.get("type").and_then(Value::as_str) == Some("code"))
+        .expect("a code block should be present");
+
+    assert_eq!(code.get("language").and_then(Value::as_str), Some("python"));
+    assert_eq!(
+        code.get("text").and_then(Value::as_str),
+        Some("def add(a, b):\n    return a + b"),
+        "the markdown fence should be stripped"
+    );
+}
+
+#[test]
+fn walks_branch_to_current_node() {
+    let capture = first_fixture();
+    let text = all_text(&capture);
+
+    assert_eq!(
+        capture.messages.len(),
+        5,
+        "only the active path should be captured"
+    );
+    assert!(
+        text.contains("Here is a shorter version."),
+        "the active path must be included"
+    );
+    assert!(
+        !text.contains("Actually, add type hints."),
+        "the sibling off current_node must be excluded"
+    );
+}
+
+#[test]
+fn unknown_content_type_preserved_in_metadata() {
+    let capture = first_fixture();
+
+    let last = capture.messages.last().expect("at least one message");
+    let unknown = last
+        .get("metadata_json")
+        .and_then(|metadata| metadata.get("unknown_blocks"))
+        .and_then(Value::as_array)
+        .expect("the unknown block should be preserved");
+
+    assert_eq!(unknown.len(), 1);
+    assert_eq!(
+        unknown[0].get("content_type").and_then(Value::as_str),
+        Some("tether_browsing_display"),
+        "the raw block should be preserved verbatim"
+    );
+    assert!(
+        last.get("blocks")
+            .and_then(Value::as_array)
+            .expect("blocks is always present")
+            .is_empty(),
+        "an unknown content type should produce no canonical blocks"
+    );
+}
+
+#[test]
+fn null_create_time_handled() {
+    let capture = first_fixture();
+
+    let message = capture
+        .messages
+        .iter()
+        .find(|message| message.get("turn_index").and_then(Value::as_u64) == Some(3))
+        .expect("turn 3 should exist");
+
+    assert_eq!(
+        message.get("create_time"),
+        Some(&Value::Null),
+        "a null timestamp must stay null, not be coerced to 0"
+    );
+}
+
+#[test]
+fn malformed_json_returns_invalid_format() {
+    let error = ChatGptAdapter
+        .parse_export(b"{ this is not json")
+        .expect_err("bad input should not parse");
+
+    assert!(matches!(error, AdapterError::InvalidFormat));
+}
+
+#[test]
+fn missing_mapping_returns_malformed_message() {
+    let error = ChatGptAdapter
+        .parse_export(br#"[{"id":"c1","title":"no mapping here"}]"#)
+        .expect_err("a conversation without a mapping should fail");
+
+    match error {
+        AdapterError::MalformedMessage { index, reason } => {
+            assert_eq!(index, 0);
+            assert!(
+                reason.contains("mapping"),
+                "the reason should name the missing field, got: {reason}"
+            );
+        }
+        other => panic!("expected MalformedMessage, got {other:?}"),
+    }
+}
+
+#[test]
+fn idempotent_parse() {
+    let first = serde_json::to_value(parse_fixture()).expect("captures serialize");
+    let second = serde_json::to_value(parse_fixture()).expect("captures serialize");
+
+    assert_eq!(first, second, "parsing the same bytes twice must be stable");
+}
+
+#[test]
+fn golden_fixture_matches() {
+    let actual = serde_json::to_value(parse_fixture()).expect("captures serialize");
+    let expected: Value =
+        serde_json::from_str(GOLDEN).expect("the golden file should be valid JSON");
+
+    assert_eq!(
+        actual, expected,
+        "parser output drifted from the golden file. If the change is intended, \
+         regenerate the golden file and hand-verify it against section 4 of the \
+         PR #3a brief."
+    );
+}
+
+#[test]
+fn unknown_role_falls_back_to_unknown() {
+    // Defensive path: ChatGPT always sets author.role, but the parser must not
+    // invent one from nothing. The fallback is documented rather than silent.
+    let export = br#"[{
+        "id": "c1",
+        "current_node": "n1",
+        "mapping": {
+            "n1": {
+                "id": "n1",
+                "parent": null,
+                "message": {
+                    "id": "m1",
+                    "content": { "content_type": "text", "parts": ["no role here"] }
+                }
+            }
+        }
+    }]"#;
+
+    let captures = ChatGptAdapter
+        .parse_export(export)
+        .expect("a message without an author should still parse");
+
+    assert_eq!(captures.len(), 1);
+    assert_eq!(
+        captures[0].messages[0].get("role").and_then(Value::as_str),
+        Some("unknown")
+    );
+}
+
+#[test]
+fn conversation_without_id_returns_malformed() {
+    // A conversation we cannot identify cannot be linked or de-duplicated, so
+    // it is malformed rather than silently given a made-up id.
+    let error = ChatGptAdapter
+        .parse_export(br#"[{"mapping":{},"current_node":null}]"#)
+        .expect_err("a conversation with no id should fail");
+
+    match error {
+        AdapterError::MalformedMessage { index, reason } => {
+            assert_eq!(index, 0);
+            assert!(
+                reason.contains("id"),
+                "the reason should name the missing field, got: {reason}"
+            );
+        }
+        other => panic!("expected MalformedMessage, got {other:?}"),
+    }
+}
