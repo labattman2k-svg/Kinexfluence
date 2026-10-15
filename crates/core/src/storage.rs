@@ -1,6 +1,6 @@
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{KfxResult, StorageConfig};
 
@@ -9,13 +9,12 @@ pub async fn open(path: &Path, config: &StorageConfig) -> KfxResult<SqlitePool> 
         std::fs::create_dir_all(parent)?;
     }
 
-    // TODO: Implement SQLCipher encryption (ADR 0003)
-    // For now, we use standard SQLite. SQLCipher integration requires:
-    // 1. Building SQLx against SQLCipher libraries
-    // 2. Key derivation strategy (ADR 0005)
-    // 3. Testing FTS5 and sqlite-vec compatibility
     if config.use_encryption {
-        debug!("Encryption requested but not yet implemented - using standard SQLite");
+        warn!(
+            target: "kfx.storage",
+            "use_encryption=true is set but SQLCipher is not yet wired; \
+             data is stored in plaintext. See ADR 0005."
+        );
     }
 
     let url = format!("sqlite://{}?mode=rwc", path.display());
