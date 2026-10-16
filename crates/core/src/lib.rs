@@ -1,6 +1,7 @@
 //! Kinexfluence core: storage, normalizer, scorer, probe engine, exporter.
 pub mod config;
 pub mod error;
+pub mod normalizer;
 pub mod server;
 pub mod storage;
 

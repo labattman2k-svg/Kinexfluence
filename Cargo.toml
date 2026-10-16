@@ -30,3 +30,6 @@ tower = "0.5"
 hyper = { version = "1", features = ["full"] }
 http-body-util = "0.1"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid", "migrate"] }
+# Already present transitively via sqlx and tauri; declared directly because
+# kfx-core now hashes snippet and conversation content.
+sha2 = "0.10"
