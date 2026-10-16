@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite across core, CLI, and adapters (39 tests)
+- Test suite across core, CLI, and adapters (53 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 - ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
@@ -24,8 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migration patterns guide (`docs/migrations.md`)
 - Snippet extractor for canonical messages (`crates/core/src/normalizer`):
   text blocks split on blank lines, code kept whole, SHA-256 over
-  whitespace-collapsed lowercase text. Pure transformation; the
-  capture-consuming `normalize` is PR #3c-2, database writes are PR #3d
+  whitespace-collapsed lowercase text
+- Capture normalizer (`crates/core/src/normalizer`): `normalize` turns parsed
+  `RawCapture`s into rows for conversation, message, snippet, and attachment,
+  resolving provider parent ids to generated message ids, converting epoch
+  timestamps to RFC 3339, and hashing conversation content for re-import
+  detection. Pure transformation, no database writes; PR #3d inserts the rows
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
