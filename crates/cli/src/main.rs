@@ -1,6 +1,28 @@
 use clap::{Parser, Subcommand};
+use kfx_adapters::chatgpt::ChatGptAdapter;
+use kfx_adapters::ProviderAdapter;
+use kfx_core::writer::ImportSummary;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+/// Exit codes, distinct so a script can tell a bad export from a bad database.
+///
+/// 2, 3 and 4 are fixed by the PR #3d brief. 1 is this program's own catch-all
+/// for problems it detects before any of those stages is reached, and is also
+/// what `clap` uses for a malformed command line.
+mod exit {
+    /// The command did what it was asked.
+    pub const SUCCESS: std::process::ExitCode = std::process::ExitCode::SUCCESS;
+    /// The export could not be read or parsed.
+    pub const ADAPTER: u8 = 2;
+    /// Parsed captures could not be normalized.
+    pub const NORMALIZER: u8 = 3;
+    /// The database could not be opened, migrated, or written.
+    pub const DATABASE: u8 = 4;
+    /// The command line asked for something this program does not do.
+    pub const USAGE: u8 = 1;
+}
 
 #[derive(Parser)]
 #[command(name = "kinexfluence", version, about = "Kinexfluence CLI")]
@@ -17,34 +39,152 @@ enum Cmd {
         db: String,
     },
     /// Import a provider export file.
-    Import { provider: String, path: PathBuf },
+    Import {
+        provider: String,
+        path: PathBuf,
+        #[arg(long, default_value = "~/.kinexfluence/kinexfluence.db")]
+        db: String,
+    },
+}
+
+/// Why a command failed, and the exit code that carries the meaning.
+#[derive(Debug)]
+enum CliError {
+    /// The file could not be read, or the adapter could not parse it.
+    Adapter(String),
+    /// The captures parsed, but could not be turned into rows.
+    Normalizer(String),
+    /// The database could not be opened, migrated, or written.
+    Database(String),
+    /// No adapter exists for the requested provider.
+    UnknownProvider(String),
+}
+
+impl CliError {
+    fn code(&self) -> u8 {
+        match self {
+            Self::Adapter(_) => exit::ADAPTER,
+            Self::Normalizer(_) => exit::NORMALIZER,
+            Self::Database(_) => exit::DATABASE,
+            Self::UnknownProvider(_) => exit::USAGE,
+        }
+    }
+}
+
+/// Written out rather than derived: `kfx-cli` deliberately has no `thiserror`
+/// dependency, and the brief's allowlist covers dev-dependencies only.
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Adapter(message) => write!(f, "adapter error: {message}"),
+            Self::Normalizer(message) => write!(f, "normalizer error: {message}"),
+            Self::Database(message) => write!(f, "database error: {message}"),
+            Self::UnknownProvider(provider) => {
+                write!(f, "unsupported provider: {provider} (try \"chatgpt\")")
+            }
+        }
+    }
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> ExitCode {
     tracing_subscriber::fmt().with_env_filter("info").init();
-    let cli = Cli::parse();
-    match cli.cmd {
-        Cmd::Migrate { db } => {
-            let path = shellexpand(&db);
-            let storage_config = kfx_core::StorageConfig {
-                path: path.to_string_lossy().to_string(),
-                use_encryption: false,
-            };
-            let pool = kfx_core::storage::open(&path, &storage_config).await?;
-            kfx_core::storage::migrate(&pool).await?;
-            println!("migrations applied to {}", path.display());
-        }
-        Cmd::Import { provider, path } => {
-            println!(
-                "import {} from {}: adapter not yet wired",
-                provider,
-                path.display()
-            );
-            // TODO(#3): wire adapter
+
+    match run(Cli::parse()).await {
+        Ok(()) => exit::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(error.code())
         }
     }
+}
+
+async fn run(cli: Cli) -> Result<(), CliError> {
+    match cli.cmd {
+        Cmd::Migrate { db } => migrate(&db).await,
+        Cmd::Import { provider, path, db } => import(&provider, &path, &db).await,
+    }
+}
+
+async fn migrate(db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    println!("migrations applied to {}", path.display());
     Ok(())
+}
+
+/// Read, parse, normalize, then write.
+///
+/// The order is deliberate: everything that can fail on the *input* happens
+/// before the database is opened. A mistyped path or a corrupt export should
+/// not leave a freshly created, empty database behind, and it should exit with
+/// the adapter code rather than a database one.
+async fn import(provider: &str, path: &Path, db: &str) -> Result<(), CliError> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| CliError::Adapter(format!("reading {}: {error}", path.display())))?;
+
+    let captures = match provider {
+        // `ChatGptAdapter` is a unit struct, so there is nothing to construct.
+        // `parse_export` comes from `ProviderAdapter`, which is in scope above.
+        "chatgpt" => ChatGptAdapter
+            .parse_export(&bytes)
+            .map_err(|error| CliError::Adapter(error.to_string()))?,
+        other => return Err(CliError::UnknownProvider(other.to_owned())),
+    };
+
+    let batch = kfx_core::normalizer::normalize(&captures)
+        .map_err(|error| CliError::Normalizer(error.to_string()))?;
+
+    let db_path = shellexpand(db);
+    let config = storage_config(&db_path);
+
+    let pool = kfx_core::storage::open(&db_path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    // Importing into an out-of-date schema would fail in confusing ways
+    // halfway through, and running migrations is idempotent.
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let summary = kfx_core::writer::write_batch(&pool, batch)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    print_summary(path, &summary);
+    Ok(())
+}
+
+fn print_summary(path: &Path, summary: &ImportSummary) {
+    println!("Imported from {}:", path.display());
+    println!(
+        "  Conversations: {} inserted, {} skipped (already present)",
+        summary.conversations_inserted, summary.conversations_skipped
+    );
+    println!("  Messages:      {}", summary.messages_inserted);
+    println!("  Snippets:      {}", summary.snippets_inserted);
+    // `attachments_inserted` counts every attachment row, missing files
+    // included, so "present" is the difference rather than the total.
+    println!(
+        "  Attachments:   {} present, {} missing",
+        summary.attachments_present(),
+        summary.attachments_missing
+    );
+}
+
+fn storage_config(path: &Path) -> kfx_core::StorageConfig {
+    kfx_core::StorageConfig {
+        path: path.to_string_lossy().to_string(),
+        use_encryption: false,
+    }
 }
 
 /// Expand a leading `~/` against the user's home directory.

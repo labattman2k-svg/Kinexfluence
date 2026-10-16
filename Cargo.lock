@@ -2114,6 +2114,7 @@ dependencies = [
  "kfx-adapters",
  "kfx-core",
  "predicates",
+ "sqlx",
  "tempfile",
  "tokio",
  "tracing-subscriber",
