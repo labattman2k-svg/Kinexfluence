@@ -20,6 +20,9 @@ sqlx.workspace = true
 tower.workspace = true
 hyper.workspace = true
 http-body-util.workspace = true
+# The normalizer consumes adapter output, so core depends on adapters and not
+# the other way round. Nothing in adapters depends on core, so this is acyclic.
+kfx-adapters = { path = "../adapters" }
 
 [dev-dependencies]
 tempfile = "3"
