@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Schema migrations for attachment status and conversation content hash
   (`0002_attachment_status.sql`, `0003_conversation_content_hash.sql`)
 - Migration patterns guide (`docs/migrations.md`)
+- Snippet extractor for canonical messages (`crates/core/src/normalizer`):
+  text blocks split on blank lines, code kept whole, SHA-256 over
+  whitespace-collapsed lowercase text. Pure transformation; the
+  capture-consuming `normalize` is PR #3c-2, database writes are PR #3d
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
