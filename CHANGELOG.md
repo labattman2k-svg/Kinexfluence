@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite across core, CLI, and adapters (62 tests)
+- Test suite across core, CLI, and adapters (63 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 - ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaction, creating the `source` row a first import needs. Re-importing
   the same export inserts nothing, because a conversation whose content hash
   is already present is skipped whole
+- `kinexfluence import chatgpt <path>` wired end to end: read, parse,
+  normalize, write, and print a summary. Exit codes distinguish an adapter
+  failure (2) from a normalizer failure (3) and a database failure (4)
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)

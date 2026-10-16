@@ -11,7 +11,6 @@ path = "src/main.rs"
 [dependencies]
 kfx-core = { path = "../core" }
 kfx-adapters = { path = "../adapters" }
-anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 tokio.workspace = true
 tracing-subscriber.workspace = true
@@ -20,3 +19,9 @@ tracing-subscriber.workspace = true
 assert_cmd = "2"
 tempfile = "3"
 predicates = "3"
+# Test-only. The binary itself never names a sqlx type: it goes through
+# `kfx_core::storage` and `kfx_core::writer`, which are what own those. The
+# CLI tests use it to read back what the import actually wrote, because
+# asserting on stdout alone could not tell "wrote the rows" from "printed a
+# summary".
+sqlx.workspace = true
