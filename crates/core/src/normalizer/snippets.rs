@@ -137,8 +137,9 @@ pub fn extract_snippets(message: &CanonicalMessage, message_id: &str) -> Vec<New
                         .and_then(Value::as_str)
                         .filter(|language| !language.is_empty())
                         .map(str::to_owned),
-                    char_start: Some(0),
-                    char_end: Some(text.chars().count() as i64),
+                    // The block is the unit, so there is no sub-block span.
+                    char_start: None,
+                    char_end: None,
                     hash: String::new(),
                 };
                 snippet.hash = content_hash(&snippet.text);
@@ -164,8 +165,9 @@ pub fn extract_snippets(message: &CanonicalMessage, message_id: &str) -> Vec<New
                     kind: KIND_TEXT.to_owned(),
                     text: text.to_owned(),
                     language: None,
-                    char_start: Some(0),
-                    char_end: Some(text.chars().count() as i64),
+                    // The block is the unit, so there is no sub-block span.
+                    char_start: None,
+                    char_end: None,
                     hash: String::new(),
                 };
                 snippet.hash = content_hash(&snippet.text);
@@ -195,69 +197,61 @@ fn text_of(block: &Value) -> &str {
 
 /// Split a text block on blank lines.
 ///
-/// Returns non-empty paragraphs with their character offsets in `text`. Empty
-/// and whitespace-only segments are dropped: they carry nothing to show, and a
+/// Returns non-empty paragraphs with their byte offsets in `text`. Empty and
+/// whitespace-only segments are dropped: they carry nothing to show, and a
 /// snippet of two newlines would be ranked like any other.
+///
+/// Offsets are bytes, not characters, because every consumer uses them to slice
+/// the source string and Rust slices by byte. Character offsets would cost a
+/// scan per read and would disagree with the slice the moment the text leaves
+/// ASCII.
 fn paragraphs(text: &str) -> Vec<(&str, i64, i64)> {
-    let mut spans: Vec<(usize, usize, i64, i64)> = Vec::new();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
 
-    let mut char_pos: i64 = 0;
-    let mut seg_byte_start: usize = 0;
-    let mut seg_char_start: i64 = 0;
+    let mut seg_start: usize = 0;
     let mut newline_run: usize = 0;
 
     for (byte_idx, ch) in text.char_indices() {
         if ch == '\n' {
             newline_run += 1;
-            char_pos += 1;
 
             if newline_run == 2 {
                 // The segment ends before the first newline of the run. `\n` is
                 // one byte, so the previous byte is that newline.
-                spans.push((seg_byte_start, byte_idx - 1, seg_char_start, char_pos - 2));
-                seg_byte_start = byte_idx + 1;
-                seg_char_start = char_pos;
+                spans.push((seg_start, byte_idx - 1));
+                seg_start = byte_idx + 1;
                 newline_run = 0;
             }
             continue;
         }
 
         newline_run = 0;
-        char_pos += 1;
     }
 
-    spans.push((seg_byte_start, text.len(), seg_char_start, char_pos));
+    spans.push((seg_start, text.len()));
 
     spans
         .into_iter()
-        .filter_map(|(byte_start, byte_end, char_start, char_end)| {
-            trim_span(text, byte_start, byte_end, char_start, char_end)
-        })
+        .filter_map(|(byte_start, byte_end)| trim_span(text, byte_start, byte_end))
         .collect()
 }
 
-/// Trim a span and shift its character offsets to match.
-fn trim_span(
-    text: &str,
-    byte_start: usize,
-    byte_end: usize,
-    char_start: i64,
-    char_end: i64,
-) -> Option<(&str, i64, i64)> {
+/// Trim a span and shift its byte offsets to match.
+fn trim_span(text: &str, byte_start: usize, byte_end: usize) -> Option<(&str, i64, i64)> {
     let raw = text.get(byte_start..byte_end)?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    let leading_len = raw.len() - raw.trim_start().len();
-    let trailing_len = raw.trim_start().len() - trimmed.len();
-    let leading_chars = raw.get(..leading_len)?.chars().count() as i64;
-    let trailing_chars = raw.get(raw.len() - trailing_len..)?.chars().count() as i64;
+    let leading_bytes = raw.len() - raw.trim_start().len();
+    let trailing_bytes = raw.trim_start().len() - trimmed.len();
 
+    // `usize` to `i64` for the INTEGER columns. A single block would have to
+    // exceed `i64::MAX` bytes for this to lose anything.
     Some((
         trimmed,
-        char_start + leading_chars,
-        char_end - trailing_chars,
+        (byte_start + leading_bytes) as i64,
+        (byte_end - trailing_bytes) as i64,
     ))
 }

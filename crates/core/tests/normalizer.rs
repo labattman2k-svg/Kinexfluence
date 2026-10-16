@@ -55,6 +55,9 @@ fn text_block_splits_into_paragraphs() {
         assert_eq!(snippet.language, None);
     }
 
+    // These are byte offsets, but every character in this sample is one byte,
+    // so they would read the same either way. `paragraph_offsets_are_bytes`
+    // below is the test that actually tells the two apart.
     assert_eq!(snippets[0].char_start, Some(0));
     assert_eq!(snippets[0].char_end, Some(16));
     assert_eq!(
@@ -62,6 +65,31 @@ fn text_block_splits_into_paragraphs() {
         Some(18),
         "the second paragraph starts after the blank line"
     );
+}
+
+#[test]
+fn paragraph_offsets_are_bytes_not_characters() {
+    // "café" is four characters but five bytes. Character offsets would end
+    // the first paragraph at 4 and start the second at 6.
+    let snippets = snippets_of(json!([{
+        "type": "text",
+        "text": "café\n\nsecond"
+    }]));
+
+    assert_eq!(snippets.len(), 2);
+    assert_eq!(snippets[0].text, "café");
+    assert_eq!(snippets[0].char_start, Some(0));
+    assert_eq!(
+        snippets[0].char_end,
+        Some(5),
+        "café is five bytes but only four characters"
+    );
+    assert_eq!(
+        snippets[1].char_start,
+        Some(7),
+        "two newlines follow the five bytes of the first paragraph"
+    );
+    assert_eq!(snippets[1].char_end, Some(13));
 }
 
 #[test]
@@ -80,6 +108,11 @@ fn code_block_stays_whole() {
     assert_eq!(snippets[0].granularity, "block");
     assert_eq!(snippets[0].kind, KIND_CODE);
     assert_eq!(snippets[0].language.as_deref(), Some("python"));
+    assert_eq!(
+        snippets[0].char_start, None,
+        "the block is the unit, so there is no sub-block span to give"
+    );
+    assert_eq!(snippets[0].char_end, None);
 }
 
 #[test]
@@ -90,6 +123,11 @@ fn execution_output_becomes_a_text_snippet() {
     assert_eq!(snippets[0].kind, KIND_TEXT);
     assert_eq!(snippets[0].granularity, "block");
     assert_eq!(snippets[0].text, "42");
+    assert_eq!(
+        snippets[0].char_start, None,
+        "block granularity means the block is the unit"
+    );
+    assert_eq!(snippets[0].char_end, None);
 }
 
 #[test]

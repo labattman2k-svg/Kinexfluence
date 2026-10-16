@@ -143,9 +143,14 @@ pub struct NewSnippet {
     pub text: String,
     /// Set for code snippets when the export declared a language.
     pub language: Option<String>,
-    /// Character offset of the snippet within its source block's text.
+    /// Byte offsets within the source block's text, UTF-8 encoded.
+    /// `None` for block-granularity snippets where the block is the unit.
+    ///
+    /// The field is named for the `char_start` column it maps to; the unit is
+    /// bytes, which is what a reader slicing the source text actually needs.
     pub char_start: Option<i64>,
-    /// Exclusive character offset of the snippet within its source block.
+    /// Exclusive byte offset within the source block's text, UTF-8 encoded.
+    /// `None` for block-granularity snippets where the block is the unit.
     pub char_end: Option<i64>,
     /// SHA-256 over the normalized text; see [`crate::normalizer::snippets`].
     pub hash: String,
