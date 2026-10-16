@@ -363,6 +363,16 @@ async fn all_migrations_idempotent(pool: SqlitePool) -> Result<(), Box<dyn std::
 /// So this test exists to catch a future contributor prepending a license
 /// header to 0002.
 ///
+/// Note what is *not* part of that contract: the newline. An earlier version
+/// of this test required `-- no-transaction\n` and so failed on Windows, where
+/// `core.autocrlf` checks the file out with CRLF. Line endings are now pinned
+/// to LF for `schema/migrations/*.sql` in `.gitattributes`, because sqlx
+/// checksums a migration as `Sha384` over its raw bytes
+/// (`sqlx-core-0.8.6/src/migrate/migration.rs:25`) and compares that checksum
+/// on every run (`migrator.rs:175`, `MigrateError::VersionMismatch`). Without
+/// the attribute a CRLF checkout checksums differently from an LF one, so a
+/// database written by one is rejected by the other.
+///
 /// Be precise about what the flag does on SQLite, because it is not what the
 /// directive's name suggests: it is parsed and stored, and then never read.
 /// `sqlx-sqlite`'s `Migrate::apply` opens a transaction unconditionally, and
@@ -381,8 +391,10 @@ async fn all_migrations_idempotent(pool: SqlitePool) -> Result<(), Box<dyn std::
 fn no_transaction_directive_is_first_bytes() {
     let bytes = std::fs::read(migration_path(M2)).expect("0002 should be readable");
 
-    // "-- no-transaction" is 17 bytes; with its terminating newline, 18.
-    const DIRECTIVE: &[u8] = b"-- no-transaction\n";
+    // sqlx's contract is `sql.starts_with("-- no-transaction")`: 17 bytes, no
+    // newline. Pinning the newline as well made this a line-ending test by
+    // accident.
+    const DIRECTIVE: &[u8] = b"-- no-transaction";
 
     assert!(
         !bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
@@ -391,7 +403,16 @@ fn no_transaction_directive_is_first_bytes() {
 
     assert!(
         bytes.starts_with(DIRECTIVE),
-        "0002 must begin with the directive followed by a newline. Got: {:?}",
+        "0002 must begin with the directive. Got: {:?}",
+        String::from_utf8_lossy(&bytes[..bytes.len().min(64)])
+    );
+
+    // The directive is a line of its own, so whatever follows it terminates
+    // that line. Accepting CR as well as LF is what makes this test pass on a
+    // Windows checkout; it still rejects `-- no-transactionish`.
+    assert!(
+        matches!(bytes.get(DIRECTIVE.len()), Some(b'\n' | b'\r')),
+        "the directive must be a line of its own. Got: {:?}",
         String::from_utf8_lossy(&bytes[..bytes.len().min(64)])
     );
 }
