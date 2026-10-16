@@ -86,6 +86,11 @@ impl ImportSummary {
 /// Within a conversation the inserts run conversation, then messages, then
 /// snippets, then attachments, because each level references the one before
 /// it.
+///
+/// # Re-import
+///
+/// A conversation whose `content_hash` is already in the database is skipped
+/// whole -- see [`already_imported`].
 pub async fn write_batch(
     pool: &SqlitePool,
     batch: NormalizedBatch,
@@ -96,6 +101,11 @@ pub async fn write_batch(
     let mut tx = pool.begin().await?;
 
     for conversation in &batch.conversations {
+        if already_imported(&mut tx, conversation).await? {
+            summary.conversations_skipped += 1;
+            continue;
+        }
+
         // `conversation.source_id` references `source(id)` and nothing seeds
         // that table, so the first import from a provider has to create the
         // row. Without this the insert below fails the foreign key.
@@ -141,6 +151,35 @@ pub async fn write_batch(
 
     tx.commit().await?;
     Ok(summary)
+}
+
+/// Has this conversation's content been imported already?
+///
+/// A conversation with no `content_hash` cannot be recognised on a re-import,
+/// so it is always inserted. That is the honest answer: with nothing to
+/// compare there is no basis for calling it a duplicate, and falling back to
+/// the external id would treat two genuinely different exports of the same
+/// conversation as the same.
+///
+/// The whole conversation is skipped rather than just its row, and that is the
+/// point: messages and snippets are keyed by freshly generated ids, so a
+/// second run would produce new ids for identical content and nothing else
+/// would stop the rows from doubling.
+async fn already_imported(
+    tx: &mut Transaction<'_, Sqlite>,
+    conversation: &NewConversation,
+) -> Result<bool, WriteError> {
+    let Some(hash) = conversation.content_hash.as_deref() else {
+        return Ok(false);
+    };
+
+    let existing: Option<String> =
+        sqlx::query_scalar("SELECT id FROM conversation WHERE content_hash = ? LIMIT 1")
+            .bind(hash)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    Ok(existing.is_some())
 }
 
 /// Reject a batch whose rows point at rows the batch does not contain.
