@@ -228,6 +228,47 @@ async fn rebuild_preserves_rows(pool: SqlitePool) -> Result<(), Box<dyn std::err
 which migrations run. `raw_sql` executes a whole migration file, including
 files that contain multiple statements and pragmas.
 
+### A local test run can pass while CI fails
+
+Adding a migration can leave a stale build that hides the consequences, and
+the mechanism is worth knowing because it cost a red CI run.
+
+`sqlx::migrate!` expands at compile time. It walks the directory and emits one
+`include_str!` per file it found:
+
+```rust
+// sqlx-macros-core-0.8.6/src/migrate.rs:62
+// this tells the compiler to watch this path for changes
+Ok(quote! { include_str!(#path_str) })
+```
+
+The comment is only half true. `include_str!` makes the compiler watch **the
+files that were in the list when the macro last ran**. A file added to the
+directory afterwards is not a tracked input, so cargo has no reason to re-run
+the macro — and the crate keeps embedding the shorter, older list.
+
+The visible symptom: any test that asserts on the applied schema version, or
+otherwise depends on the embedded migration set, passes locally against a
+stale list and fails in CI, which compiles from scratch.
+
+Two things follow.
+
+**Do not hardcode the schema version in a test.** Derive it, so adding a
+migration cannot silently invalidate the assertion:
+
+```rust
+let expected = sqlx::migrate!("../../schema/migrations")
+    .iter()
+    .map(|migration| migration.version)
+    .max()
+    .expect("there should be at least one migration");
+assert_eq!(version, expected);
+```
+
+**When you add a migration, force a rebuild of anything that embeds them:**
+`touch crates/core/src/storage.rs`, or `cargo clean -p kfx-core`. Otherwise
+your local green run means less than it looks like.
+
 ## 6. Checklist for a new migration
 
 - [ ] New file with the next number; never an edit to an existing one
@@ -236,5 +277,6 @@ files that contain multiple statements and pragmas.
 - [ ] Indexes recreated if the table was rebuilt
 - [ ] `PRAGMA foreign_key_check` before `COMMIT` in a rebuild
 - [ ] Tested against a database that already holds rows, not only a fresh one
+- [ ] Forced a rebuild of `kfx-core` before trusting a local green run
 - [ ] `CHANGELOG.md` updated
 - [ ] `docs/STANDARDS_EXCEPTIONS.md` entry if a hard gate was bent
