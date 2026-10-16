@@ -135,9 +135,28 @@ Two details that are easy to miss:
   Usually helpful, but it means a rename during a rebuild can edit objects
   you did not mean to touch. Check what references the table first.
 
-Nothing in `0001_init.sql` references `attachment` by foreign key, so the
-`PRAGMA foreign_keys` toggling in 0002 is precautionary today. It stops being
-precautionary the moment anything does reference it.
+Nothing in `0001_init.sql` references `attachment` by foreign key, which is
+what makes 0002 safe today. That is not a coincidence worth relying on, so
+the actual behaviour was measured. Rebuilding a table that another table
+references, run through the real migrator, gives:
+
+| State of the referencing table | Result |
+|---|---|
+| Empty | **succeeds**, and the referencing FK survives the rename intact |
+| Holds a row pointing at the rebuilt table | **fails**: `FOREIGN KEY constraint failed` (SQLite code 787) |
+
+The reason is the interaction described in §2. Because `PRAGMA foreign_keys =
+OFF` is inert under the migrator, foreign keys stay **enforced** through the
+rebuild, and `DROP TABLE` performs an implicit delete of the parent rows,
+which violates any child row that references them. The pragma would have
+prevented exactly this, and it is precisely the pragma that does not work.
+
+The data dependence is the dangerous part. A rebuild like this passes against
+an empty development database and fails on a user's populated one. If a
+future migration has to rebuild a table that anything references by foreign
+key, stop and ask: the pattern here is not sufficient. A custom migration
+runner that can genuinely disable foreign keys, or an explicit
+drop-FK / rebuild / restore-FK sequence, is required.
 
 ### `PRAGMA foreign_key_check` is only a guard if you read its result
 

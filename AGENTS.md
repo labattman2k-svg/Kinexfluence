@@ -199,9 +199,13 @@ Read `docs/migrations.md` before writing one. The short version:
   sqlx's wrapper makes it a no-op. Table rebuilds still work as long as no
   other table has a FK to the rebuilt table.
 - If a future migration must rebuild a table that IS referenced by a FK from
-  another table, stop and ask. The current pattern breaks; a custom migration
-  runner or a drop-FK/rebuild/restore-FK approach is required. See
-  `docs/migrations.md`.
+  another table, stop and ask. Measured through the real migrator: the
+  rebuild succeeds while the referencing table is empty, and fails with
+  `FOREIGN KEY constraint failed` (SQLite code 787) as soon as that table
+  holds a row pointing at the table being rebuilt. The data dependence is the
+  hazard — it passes in development and fails on a real database. A custom
+  migration runner, or a drop-FK/rebuild/restore-FK approach, is required.
+  See `docs/migrations.md`.
 
 ## Known Windows/Tauri gotchas
 
