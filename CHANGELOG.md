@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
 
 ### Fixed
+- Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
 - `crates/tauri` propagates the Tauri run error instead of panicking on it.
   This was the last `expect` outside tests in the tree
 - CI `js` job: `actions/setup-node` with `cache: npm` resolves the lockfile

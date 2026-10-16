@@ -186,6 +186,23 @@ Rules for the agent:
 Read `docs/QUALITY.md` for current metric targets. Hard gates must pass.
 Aspirational gates should not regress.
 
+## SQLx migrations
+
+Read `docs/migrations.md` before writing one. The short version:
+
+- `-- no-transaction` as the literal first bytes is parsed by sqlx-core but
+  ignored by sqlx-sqlite. Verified against sqlx-core-0.8.6
+  (migrate/source.rs:127) and sqlx-sqlite-0.8.6 (Migrate::apply opens a
+  transaction unconditionally). sqlx-postgres honors it.
+- Practical consequence on SQLite: a migration file never needs
+  BEGIN/COMMIT — sqlx wraps it. It never needs `PRAGMA foreign_keys = OFF` —
+  sqlx's wrapper makes it a no-op. Table rebuilds still work as long as no
+  other table has a FK to the rebuilt table.
+- If a future migration must rebuild a table that IS referenced by a FK from
+  another table, stop and ask. The current pattern breaks; a custom migration
+  runner or a drop-FK/rebuild/restore-FK approach is required. See
+  `docs/migrations.md`.
+
 ## Known Windows/Tauri gotchas
 
 - Tauri v2 requires `use tauri::Manager;` for `app.manage()`,
