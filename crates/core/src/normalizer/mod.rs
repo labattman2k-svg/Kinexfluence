@@ -8,9 +8,21 @@
 //! the conversation content hash is over normalized content rather than raw
 //! file bytes.
 
+pub mod snippets;
 pub mod types;
 
+use uuid::Uuid;
+
+pub use snippets::{
+    content_hash, extract_snippets, normalize_for_hash, GRANULARITY_BLOCK, GRANULARITY_PARAGRAPH,
+    KIND_CODE, KIND_TEXT,
+};
 pub use types::{
     CanonicalBlock, CanonicalConversation, CanonicalMessage, NewAttachment, NewConversation,
     NewMessage, NewSnippet, NormalizeError, NormalizedBatch,
 };
+
+/// A new row id.
+pub(crate) fn new_id() -> String {
+    Uuid::now_v7().to_string()
+}
