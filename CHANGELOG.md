@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite across core, CLI, and adapters (53 tests)
+- Test suite across core, CLI, and adapters (62 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 - ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
@@ -29,7 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RawCapture`s into rows for conversation, message, snippet, and attachment,
   resolving provider parent ids to generated message ids, converting epoch
   timestamps to RFC 3339, and hashing conversation content for re-import
-  detection. Pure transformation, no database writes; PR #3d inserts the rows
+  detection. Pure transformation; the writes are `writer::write_batch`
+- `write_batch` and `ImportSummary` (`crates/core/src/writer.rs`): writes a
+  normalized batch into conversation, message, snippet, and attachment in one
+  transaction, creating the `source` row a first import needs. Re-importing
+  the same export inserts nothing, because a conversation whose content hash
+  is already present is skipped whole
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
