@@ -1,0 +1,11 @@
+# sqlx checksums each migration as Sha384 over its raw bytes
+# (sqlx-core-0.8.6/src/migrate/migration.rs:25) and refuses to run against a
+# database whose stored checksum differs (migrator.rs:175, returned as
+# MigrateError::VersionMismatch). A CRLF checkout therefore checksums
+# differently from an LF one, and a database written on one platform is
+# rejected on the other.
+#
+# Pinning these to LF keeps the bytes identical on every platform regardless
+# of core.autocrlf. Changes here change migration checksums, so do not add
+# other patterns to this file without meaning to.
+schema/migrations/*.sql text eol=lf

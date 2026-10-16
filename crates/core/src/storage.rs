@@ -96,7 +96,25 @@ mod tests {
         )
         .fetch_one(&pool)
         .await?;
-        assert_eq!(version, 1, "Schema version should be 1 after migration");
+
+        // Derived from the embedded migrator rather than hardcoded to a
+        // literal. Hardcoding it broke the moment migration 0002 was added,
+        // and the failure was invisible locally: `sqlx::migrate!` emits one
+        // `include_str!` per file it found when the macro last ran, and a new
+        // file in the directory is not a tracked input, so cargo does not
+        // re-run the macro. This crate kept embedding only 0001 and the old
+        // assertion passed against a stale list while CI, compiling from
+        // scratch, failed. See docs/migrations.md.
+        let expected = sqlx::migrate!("../../schema/migrations")
+            .iter()
+            .map(|migration| migration.version)
+            .max()
+            .expect("there should be at least one migration");
+
+        assert_eq!(
+            version, expected,
+            "the highest applied migration should be the last one embedded"
+        );
         pool.close().await;
         Ok(())
     }
