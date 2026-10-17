@@ -202,6 +202,11 @@ Aspirational gates should not regress.
   `gh issue view 4 --json __typename` is NOT a valid field on gh 2.102.0 — it
   exits with "Unknown JSON field" — so the check has to go through `gh api`.
   Never assume.
+- Issue bodies: write plain prose. Do not use "Title:" or "Body:" labels in
+  instructions meant for copy-paste into GitHub's issue form. Measured in
+  issue #16: the labels were pasted verbatim into both fields, so the title
+  read "Title: Seed source table in a migration" and the body restated both
+  labels. The content survived; the framing became noise.
 
 ## SQLx migrations
 
