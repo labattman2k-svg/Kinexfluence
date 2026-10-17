@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite across core, CLI, and adapters (63 tests)
+- Test suite across core, CLI, and adapters (79 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 - ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
@@ -38,10 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `kinexfluence import chatgpt <path>` wired end to end: read, parse,
   normalize, write, and print a summary. Exit codes distinguish an adapter
   failure (2) from a normalizer failure (3) and a database failure (4)
+- Project entity (`crates/core/src/project.rs`): `create`, `list`,
+  `list_by_status`, `get`, `find_by_slug`, `resolve`, and `update_status`, with
+  generated and deduplicated slugs, uuid v7 ids, and an `event_log` row for
+  every mutation
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
+- `CreateProject` now accepts an optional explicit slug
+- `ProjectError` now includes `InvalidStatus` for schema-value validation
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
