@@ -113,3 +113,119 @@ async fn import_chatgpt_twice_is_idempotent() -> Result<(), Box<dyn std::error::
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// project
+// ---------------------------------------------------------------------------
+
+/// Run a `project` subcommand against a temp database.
+fn project_command(db: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::cargo_bin("kinexfluence").expect("the binary should build");
+    cmd.arg("project");
+    cmd.args(args);
+    cmd.args(["--db", &db.to_string_lossy()]);
+    cmd
+}
+
+#[test]
+fn project_create_and_list() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("project.db");
+
+    let created = project_command(
+        &db_path,
+        &[
+            "create",
+            "Test Project",
+            "--brief",
+            "Testing the project CLI",
+        ],
+    )
+    .output()?;
+
+    assert!(created.status.success(), "create should succeed");
+    let id = String::from_utf8(created.stdout)?.trim().to_owned();
+
+    // Scriptability is the point: stdout is the id and nothing else, so
+    // `PID=$(kinexfluence project create ...)` works.
+    assert_eq!(id.len(), 36, "stdout should be one uuid, got {id:?}");
+    assert_eq!(id.matches('-').count(), 4, "got {id:?}");
+    assert!(
+        String::from_utf8(created.stderr)?.contains("test-project"),
+        "the human-readable line belongs on stderr"
+    );
+
+    let listed = project_command(&db_path, &["list"]).output()?;
+    assert!(listed.status.success());
+    let table = String::from_utf8(listed.stdout)?;
+
+    // `list` resolves from the database, so the id appearing here is evidence
+    // the row exists -- not just that `create` echoed something.
+    assert!(
+        table.contains(&id),
+        "list output should contain the id:\n{table}"
+    );
+    assert!(table.contains("test-project"), "and the slug:\n{table}");
+    assert!(table.contains("Test Project"), "and the name:\n{table}");
+    assert!(table.contains("recon"), "and the status:\n{table}");
+
+    Ok(())
+}
+
+#[test]
+fn project_show_by_slug() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("project.db");
+
+    project_command(
+        &db_path,
+        &[
+            "create",
+            "Test Project",
+            "--brief",
+            "Testing the project CLI",
+        ],
+    )
+    .assert()
+    .success();
+
+    // By slug, not id: the subcommand has to resolve either.
+    let shown = project_command(&db_path, &["show", "test-project"]).output()?;
+    assert!(shown.status.success());
+
+    let detail = String::from_utf8(shown.stdout)?;
+    assert!(detail.contains("Project: Test Project"), "got:\n{detail}");
+    assert!(
+        detail.contains("Slug:        test-project"),
+        "got:\n{detail}"
+    );
+    assert!(detail.contains("Status:      recon"), "got:\n{detail}");
+    assert!(
+        detail.contains("Brief:       Testing the project CLI"),
+        "the brief should be shown, got:\n{detail}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn project_create_rejects_empty_name() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("project.db");
+
+    let rejected = project_command(&db_path, &["create", ""]).output()?;
+
+    assert_eq!(
+        rejected.status.code(),
+        Some(2),
+        "invalid input exits 2, per the shared convention"
+    );
+    let stderr = String::from_utf8(rejected.stderr)?;
+    assert!(
+        stderr.contains("invalid input"),
+        "the error should say what went wrong, got:\n{stderr}"
+    );
+    assert!(rejected.stdout.is_empty(), "nothing should reach stdout");
+
+    Ok(())
+}
