@@ -214,6 +214,11 @@ Aspirational gates should not regress.
   and nothing fails loudly. The maintainer must click "Edit" on the stacked PR
   and change the base branch to `main` before merging. Measured twice in this
   project — #13 needed #15 to re-land, #18 needed #21.
+- Stacked PRs require BOTH the base branch retarget AND a branch update
+  (`gh pr update-branch <num>`) because branch protection enforces
+  "head branch up to date with base". A retargeted PR still refuses to merge
+  with "the head branch is not up to date with the base branch" until it has
+  been updated. Measured three times — #23 needed both steps.
 
 ## SQLx migrations
 
