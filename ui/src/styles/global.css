@@ -3,6 +3,9 @@
   --kfx-fg: #e7e9ee;
   --kfx-muted: #8b909c;
   --kfx-accent: #7cc4ff;
+  --kfx-surface: #171a20;
+  --kfx-border: #262b34;
+  --kfx-danger: #ff8a8a;
 }
 
 html, body, #root { height: 100%; margin: 0; }
@@ -12,5 +15,133 @@ body {
   font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.kfx-app { padding: 32px; }
+.kfx-app { padding: 32px; max-width: 960px; }
 .tagline { color: var(--kfx-muted); }
+.kfx-muted { color: var(--kfx-muted); }
+.kfx-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+/* Panel ------------------------------------------------------------------ */
+
+.kfx-panel {
+  margin-top: 24px;
+  background: var(--kfx-surface);
+  border: 1px solid var(--kfx-border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.kfx-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.kfx-panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+
+/* Controls --------------------------------------------------------------- */
+
+button {
+  background: #20252e;
+  color: var(--kfx-fg);
+  border: 1px solid var(--kfx-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { border-color: var(--kfx-accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Visible focus for every control in the window, per the accessibility
+   standard: keyboard-reachable and focus visible. */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+.kfx-row:focus-visible {
+  outline: 2px solid var(--kfx-accent);
+  outline-offset: 2px;
+}
+
+.kfx-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--kfx-accent);
+  text-align: left;
+}
+.kfx-link:hover { text-decoration: underline; }
+
+/* Table ------------------------------------------------------------------ */
+
+.kfx-table { width: 100%; border-collapse: collapse; }
+.kfx-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--kfx-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--kfx-border);
+}
+.kfx-table td { padding: 10px 8px; border-bottom: 1px solid var(--kfx-border); }
+.kfx-row { cursor: pointer; }
+.kfx-row:hover { background: #1c2028; }
+
+/* Status badge -----------------------------------------------------------
+   Colour is never the only signal: the text says the status too. */
+
+.kfx-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--kfx-border);
+  background: #1c2028;
+}
+.kfx-status-recon { border-color: #4a6fa5; }
+.kfx-status-planning { border-color: #a58a4a; }
+.kfx-status-active { border-color: #4aa576; }
+.kfx-status-archived { border-color: #5a5f6a; color: var(--kfx-muted); }
+
+/* Detail ----------------------------------------------------------------- */
+
+.kfx-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 20px;
+  margin: 0;
+}
+.kfx-detail dt { color: var(--kfx-muted); }
+.kfx-detail dd { margin: 0; }
+
+/* Form ------------------------------------------------------------------- */
+
+.kfx-form { display: flex; flex-direction: column; gap: 6px; }
+.kfx-form label { color: var(--kfx-muted); font-size: 12px; margin-top: 8px; }
+.kfx-form input,
+.kfx-form textarea {
+  background: #0f1116;
+  color: var(--kfx-fg);
+  border: 1px solid var(--kfx-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+}
+.kfx-form-actions { margin-top: 16px; }
+
+/* Errors ----------------------------------------------------------------- */
+
+.kfx-error {
+  color: var(--kfx-danger);
+  border: 1px solid var(--kfx-danger);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 16px;
+  background: rgba(255, 138, 138, 0.06);
+}
