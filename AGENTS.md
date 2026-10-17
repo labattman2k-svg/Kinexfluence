@@ -207,6 +207,13 @@ Aspirational gates should not regress.
   issue #16: the labels were pasted verbatim into both fields, so the title
   read "Title: Seed source table in a migration" and the body restated both
   labels. The content survived; the framing became noise.
+- Stacked PRs must be retargeted to `main` immediately after the base PR
+  merges. GitHub does not do this automatically. If the base merges first and
+  the stacked PR then merges into the (now-superseded) feature branch, the
+  changes are stranded: the PR shows MERGED while `main` never receives them,
+  and nothing fails loudly. The maintainer must click "Edit" on the stacked PR
+  and change the base branch to `main` before merging. Measured twice in this
+  project — #13 needed #15 to re-land, #18 needed #21.
 
 ## SQLx migrations
 
