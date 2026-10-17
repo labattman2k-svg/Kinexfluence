@@ -3,7 +3,7 @@ use axum::{routing::get, Json, Router};
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::ffi::OsString;
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use tokio::net::TcpListener as TokioTcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -60,19 +60,44 @@ fn find_available_port(host: &str, start_port: u16) -> KfxResult<u16> {
     ))
 }
 
+/// Bind a listener and build the server, without running it yet.
+///
+/// Split out of [`serve`] so a test can bind to port `0`, learn the port the
+/// operating system chose, and then drive the *real* server over a socket.
+/// Testing `router` through `oneshot` covers the handlers; this covers the
+/// wiring from a pool to a listening socket, which is the part that had no
+/// test at all.
+///
+/// The returned future completes when the listener closes or the serve loop
+/// fails, so a caller can choose between awaiting it and dropping it.
+pub async fn start(
+    pool: SqlitePool,
+    host: &str,
+    port: u16,
+) -> KfxResult<(SocketAddr, impl std::future::Future<Output = KfxResult<()>>)> {
+    let listener = TokioTcpListener::bind((host, port)).await?;
+    let addr = listener.local_addr()?;
+    let app = router(pool);
+
+    info!("Kinexfluence server listening on {}", addr);
+
+    let server = async move {
+        axum::serve(listener, app).await?;
+        Ok(())
+    };
+
+    Ok((addr, server))
+}
+
 /// Starts the Axum server on the configured host and port.
 /// If the configured port is taken, it will try the next available port.
 ///
 /// The server owns the connection pool: it opens and migrates the database
 /// named by `config.storage` and hands a clone to every handler through router
-/// state. A caller that already has a pool should build a router with
-/// [`router`] directly rather than call this.
+/// state. A caller that already has a pool should call [`start`] directly.
 pub async fn serve(config: Config) -> KfxResult<()> {
     let host = &config.server.host;
     let port = find_available_port(host, config.server.port)?;
-
-    let addr = format!("{}:{}", host, port);
-    let listener = TokioTcpListener::bind(&addr).await?;
 
     let path = expand_home(&config.storage.path);
     let pool = crate::storage::open(&path, &config.storage).await?;
@@ -81,12 +106,8 @@ pub async fn serve(config: Config) -> KfxResult<()> {
     // error than refusing to start.
     crate::storage::migrate(&pool).await?;
 
-    let app = router(pool);
-
-    info!("Kinexfluence server listening on {}", addr);
-
-    axum::serve(listener, app).await?;
-    Ok(())
+    let (_addr, server) = start(pool, host, port).await?;
+    server.await
 }
 
 /// Expand a leading `~/` against the user's home directory.
