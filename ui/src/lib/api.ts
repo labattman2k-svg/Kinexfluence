@@ -1,13 +1,30 @@
 /**
  * Client for the local Kinexfluence core API.
  *
- * The UI is served from the Tauri webview, which is a different origin from
- * the core server, so every call here is cross-origin. Nothing in this module
- * knows about that beyond the base URL.
+ * The core binds the first free port from its configured starting point, so the
+ * UI cannot assume 47821. It probes the range once and remembers the answer for
+ * every later call.
+ *
+ * The UI is served from the Tauri webview, which is a different origin from the
+ * core server, so every call here is cross-origin. Nothing in this module knows
+ * that beyond the URLs it builds.
  */
 
-/** Where the core server listens. Port 47821 unless it was taken at startup. */
-export const API_BASE = "http://127.0.0.1:47821";
+/** Ports worth trying, in order. Mirrors the range the core searches. */
+const CANDIDATE_PORTS = [
+  47821, 47822, 47823, 47824, 47825, 47826, 47827, 47828, 47829, 47830,
+];
+
+/** The port that answered last time, if any. */
+let cachedBaseUrl: string | null = null;
+
+/**
+ * A probe already in flight.
+ *
+ * Two views mounting at once would otherwise run two full probe loops: the
+ * second would start before the first had cached anything.
+ */
+let probing: Promise<string> | null = null;
 
 /** A project as the API renders it. */
 export interface Project {
@@ -34,8 +51,8 @@ export interface NewProject {
  * A failure the API reported, or a failure to reach it at all.
  *
  * `code` is the machine-readable half of the API's error body (`not_found`,
- * `invalid_input`, `conflict`, `internal`) or `network` when the request never
- * arrived. `message` is safe to show a person.
+ * `invalid_input`, `conflict`, `internal`) or `network` when no server answered.
+ * `message` is safe to show a person.
  */
 export class ApiError extends Error {
   readonly code: string;
@@ -45,6 +62,44 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.code = code;
   }
+}
+
+async function probe(): Promise<string> {
+  for (const port of CANDIDATE_PORTS) {
+    const url = `http://127.0.0.1:${port}`;
+    try {
+      const response = await fetch(`${url}/v1/health`, { method: "GET" });
+      // A port held by something that is not Kinexfluence could still answer,
+      // so the health payload is what identifies the core -- not the status
+      // code alone.
+      if (response.ok) {
+        const body = (await response.json()) as { status?: string };
+        if (body.status === "ok") {
+          cachedBaseUrl = url;
+          return url;
+        }
+      }
+    } catch {
+      // Nothing listening on this port; try the next.
+    }
+  }
+
+  const first = CANDIDATE_PORTS[0];
+  const last = CANDIDATE_PORTS[CANDIDATE_PORTS.length - 1];
+  throw new ApiError(
+    "network",
+    `Cannot reach Kinexfluence core on any expected port (${first}–${last}). Is it running?`,
+  );
+}
+
+async function baseUrl(): Promise<string> {
+  if (cachedBaseUrl) return cachedBaseUrl;
+  if (!probing) {
+    probing = probe().finally(() => {
+      probing = null;
+    });
+  }
+  return probing;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -59,18 +114,22 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const base = await baseUrl();
+
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${base}${path}`, {
       headers: { "content-type": "application/json" },
       ...init,
     });
   } catch {
-    // `fetch` rejects only for transport failures. "Failed to fetch" tells a
-    // reader nothing actionable, so name the likely cause.
+    // A server that answered the probe but not this call has gone away. Drop
+    // the cache, so the next call probes again instead of pointing at a port
+    // nothing is listening on.
+    cachedBaseUrl = null;
     throw new ApiError(
       "network",
-      `Cannot reach the Kinexfluence server at ${API_BASE}. Is it running?`,
+      "The Kinexfluence core stopped responding. Is it still running?",
     );
   }
 
