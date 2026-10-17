@@ -18,6 +18,11 @@ pub const STATUSES: [&str; 4] = ["recon", "planning", "active", "archived"];
 /// The status a project gets when it is created.
 pub const DEFAULT_STATUS: &str = "recon";
 
+/// The actor recorded for mutations made through the CLI.
+pub const ACTOR_USER: &str = "user";
+
+const ENTITY_TYPE: &str = "project";
+
 /// Shortest slug we accept, in bytes.
 const SLUG_MIN: usize = 3;
 /// Longest slug we accept, in bytes.
@@ -118,6 +123,18 @@ pub async fn create(pool: &SqlitePool, input: CreateProject) -> Result<Project, 
     .execute(&mut *tx)
     .await?;
 
+    log_event(
+        &mut tx,
+        &id,
+        "created",
+        &format!(
+            "{{\"name\":{},\"slug\":{}}}",
+            json_string(&name),
+            json_string(&slug)
+        ),
+    )
+    .await?;
+
     let project = fetch(&mut *tx, &id)
         .await?
         .ok_or_else(|| ProjectError::NotFound(id.clone()))?;
@@ -214,15 +231,27 @@ pub async fn update_status(pool: &SqlitePool, id: &str, status: &str) -> Result<
 
     let mut tx = pool.begin().await?;
 
-    if fetch(&mut *tx, id).await?.is_none() {
-        return Err(ProjectError::NotFound(id.to_owned()));
-    }
+    let current = fetch(&mut *tx, id)
+        .await?
+        .ok_or_else(|| ProjectError::NotFound(id.to_owned()))?;
 
     sqlx::query("UPDATE project SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .bind(status)
         .bind(id)
         .execute(&mut *tx)
         .await?;
+
+    log_event(
+        &mut tx,
+        id,
+        "updated",
+        &format!(
+            "{{\"from\":{},\"to\":{}}}",
+            json_string(&current.status),
+            json_string(status)
+        ),
+    )
+    .await?;
 
     tx.commit().await?;
     Ok(())
@@ -341,6 +370,32 @@ async fn slug_taken(tx: &mut Transaction<'_, Sqlite>, slug: &str) -> Result<bool
         .await?;
     Ok(existing.is_some())
 }
+
+// ---------------------------------------------------------------------------
+// Event log
+// ---------------------------------------------------------------------------
+
+async fn log_event(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity_id: &str,
+    action: &str,
+    payload_json: &str,
+) -> Result<(), ProjectError> {
+    sqlx::query(
+        "INSERT INTO event_log (id, entity_type, entity_id, action, actor, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(ENTITY_TYPE)
+    .bind(entity_id)
+    .bind(action)
+    .bind(ACTOR_USER)
+    .bind(payload_json)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn fetch<'e, E>(executor: E, id: &str) -> Result<Option<Project>, ProjectError>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
@@ -351,4 +406,26 @@ where
             .fetch_optional(executor)
             .await?;
     Ok(project)
+}
+
+/// Quote a string as a JSON literal.
+///
+/// The payloads here are two flat strings, so this avoids pulling `serde_json`
+/// into a module that otherwise has no need for it.
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
