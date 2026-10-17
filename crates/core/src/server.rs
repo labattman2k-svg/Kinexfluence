@@ -1,13 +1,23 @@
 use axum::{routing::get, Json, Router};
 use serde_json::json;
+use sqlx::SqlitePool;
+use std::ffi::OsString;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use tokio::net::TcpListener as TokioTcpListener;
 use tracing::info;
 
 use crate::{Config, KfxResult};
 
-pub fn router() -> Router {
-    Router::new().route("/v1/health", get(health))
+/// The whole HTTP surface: health, plus the project routes from [`crate::api`].
+///
+/// The pool is router state rather than a parameter on each handler, so a
+/// handler that needs the database says so in its signature and a handler that
+/// does not cannot reach for it.
+pub fn router(pool: SqlitePool) -> Router {
+    Router::new()
+        .route("/v1/health", get(health))
+        .merge(crate::api::router(pool))
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -30,18 +40,57 @@ fn find_available_port(host: &str, start_port: u16) -> KfxResult<u16> {
 
 /// Starts the Axum server on the configured host and port.
 /// If the configured port is taken, it will try the next available port.
+///
+/// The server owns the connection pool: it opens and migrates the database
+/// named by `config.storage` and hands a clone to every handler through router
+/// state. A caller that already has a pool should build a router with
+/// [`router`] directly rather than call this.
 pub async fn serve(config: Config) -> KfxResult<()> {
     let host = &config.server.host;
     let port = find_available_port(host, config.server.port)?;
 
     let addr = format!("{}:{}", host, port);
     let listener = TokioTcpListener::bind(&addr).await?;
-    let app = router();
+
+    let path = expand_home(&config.storage.path);
+    let pool = crate::storage::open(&path, &config.storage).await?;
+    // A server that started against an out-of-date schema would answer every
+    // project request with a 500 about a missing column, which is a much worse
+    // error than refusing to start.
+    crate::storage::migrate(&pool).await?;
+
+    let app = router(pool);
 
     info!("Kinexfluence server listening on {}", addr);
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Expand a leading `~/` against the user's home directory.
+///
+/// This duplicates `shellexpand` in `crates/cli/src/main.rs`, which this change
+/// may not edit. `Config::default()` uses a `~` path and the Tauri shell passes
+/// it straight to [`serve`], so without expansion the server would create a
+/// directory literally named `~`. The two copies should be consolidated into
+/// `storage` — flagged rather than done here, because moving it is a change to
+/// a file outside this PR's boundary.
+fn expand_home(path: &str) -> PathBuf {
+    match (path.strip_prefix("~/"), home_dir()) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// The user's home directory, in the order the platforms actually set it.
+///
+/// `HOME` is the POSIX convention; Windows normally sets `USERPROFILE` and
+/// often leaves `HOME` unset. Empty values count as unset so an empty `HOME`
+/// cannot shadow a usable `USERPROFILE`.
+fn home_dir() -> Option<OsString> {
+    std::env::var_os("HOME")
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()))
 }
 
 #[cfg(test)]
@@ -54,9 +103,9 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    #[tokio::test]
-    async fn health_reports_schema_version_1() -> anyhow::Result<()> {
-        let app = router();
+    #[sqlx::test(migrations = "../../schema/migrations")]
+    async fn health_reports_schema_version_1(pool: SqlitePool) -> anyhow::Result<()> {
+        let app = router(pool);
         let request = Request::builder().uri("/v1/health").body(Body::empty())?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
@@ -68,14 +117,50 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn router_has_only_expected_routes() -> anyhow::Result<()> {
-        let app = router();
+    #[sqlx::test(migrations = "../../schema/migrations")]
+    async fn router_has_only_expected_routes(pool: SqlitePool) -> anyhow::Result<()> {
+        let app = router(pool);
         let request = Request::builder()
             .uri("/v1/nonexistent")
             .body(Body::empty())?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         Ok(())
+    }
+
+    #[test]
+    fn expands_tilde_against_home() {
+        assert_eq!(
+            expand_home_with(
+                "~/.kinexfluence/kinexfluence.db",
+                Some(OsString::from("/home/u"))
+            ),
+            PathBuf::from("/home/u/.kinexfluence/kinexfluence.db")
+        );
+    }
+
+    #[test]
+    fn leaves_absolute_paths_untouched() {
+        assert_eq!(
+            expand_home_with("/var/data/k.db", Some(OsString::from("/home/u"))),
+            PathBuf::from("/var/data/k.db")
+        );
+    }
+
+    #[test]
+    fn leaves_tilde_when_no_home_is_known() {
+        assert_eq!(
+            expand_home_with("~/.kinexfluence/k.db", None),
+            PathBuf::from("~/.kinexfluence/k.db")
+        );
+    }
+
+    /// The pure form of [`expand_home`], so the environment lookup stays out of
+    /// the assertions.
+    fn expand_home_with(path: &str, home: Option<OsString>) -> PathBuf {
+        match (path.strip_prefix("~/"), home) {
+            (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+            _ => PathBuf::from(path),
+        }
     }
 }
