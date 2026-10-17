@@ -186,6 +186,28 @@ Rules for the agent:
 Read `docs/QUALITY.md` for current metric targets. Hard gates must pass.
 Aspirational gates should not regress.
 
+## Commits and GitHub
+
+- Before every commit, run BOTH `cargo test --workspace` AND
+  `cargo fmt --all -- --check` against that commit's tree in isolation.
+  Passing tests do not imply passing format; they are independent gates.
+  Measured in PR #3d: two commits passed every test while failing
+  `fmt --check`, because the formatting was fixed in the *following* commit.
+- GitHub numbers issues and PRs in one shared sequence, so `gh issue edit 4`
+  may edit a *pull request* if #4 is a PR. The trap is quiet: `gh issue view 4`
+  does not error on a PR either — it returns a `/pull/N` URL. Check before
+  editing:
+    gh api repos/{owner}/{repo}/issues/4 --jq 'has("pull_request")'
+  `true` means it is a pull request. Note that
+  `gh issue view 4 --json __typename` is NOT a valid field on gh 2.102.0 — it
+  exits with "Unknown JSON field" — so the check has to go through `gh api`.
+  Never assume.
+- Issue bodies: write plain prose. Do not use "Title:" or "Body:" labels in
+  instructions meant for copy-paste into GitHub's issue form. Measured in
+  issue #16: the labels were pasted verbatim into both fields, so the title
+  read "Title: Seed source table in a migration" and the body restated both
+  labels. The content survived; the framing became noise.
+
 ## SQLx migrations
 
 Read `docs/migrations.md` before writing one. The short version:
