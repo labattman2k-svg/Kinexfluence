@@ -1,3 +1,4 @@
+use axum::http::{header, HeaderValue, Method};
 use axum::{routing::get, Json, Router};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -5,9 +6,29 @@ use std::ffi::OsString;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use tokio::net::TcpListener as TokioTcpListener;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 
 use crate::{Config, KfxResult};
+
+/// Origins the Atlas UI may be served from.
+///
+/// An explicit list rather than [`CorsLayer::permissive`]. The server is
+/// loopback-only but otherwise unauthenticated, so a permissive layer would let
+/// *any* page the user happens to visit read their projects and post new ones.
+/// §5 asks for an origin check, and this is it.
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list([
+            // `npm --prefix ui run dev`
+            HeaderValue::from_static("http://localhost:5173"),
+            // Tauri's webview origin, which differs by platform.
+            HeaderValue::from_static("tauri://localhost"),
+            HeaderValue::from_static("http://tauri.localhost"),
+        ]))
+        .allow_methods([Method::GET, Method::POST, Method::PATCH])
+        .allow_headers([header::CONTENT_TYPE])
+}
 
 /// The whole HTTP surface: health, plus the project routes from [`crate::api`].
 ///
@@ -18,6 +39,7 @@ pub fn router(pool: SqlitePool) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .merge(crate::api::router(pool))
+        .layer(cors_layer())
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -125,6 +147,46 @@ mod tests {
             .body(Body::empty())?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../schema/migrations")]
+    async fn cors_allows_the_ui_origin(pool: SqlitePool) -> anyhow::Result<()> {
+        let app = router(pool);
+        let request = Request::builder()
+            .uri("/v1/health")
+            .header("origin", "http://localhost:5173")
+            .body(Body::empty())?;
+        let response = app.oneshot(request).await?;
+
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://localhost:5173"),
+            "the UI runs on a different origin from the API and has to be allowed"
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../schema/migrations")]
+    async fn cors_rejects_an_unknown_origin(pool: SqlitePool) -> anyhow::Result<()> {
+        let app = router(pool);
+        let request = Request::builder()
+            .uri("/v1/health")
+            .header("origin", "https://evil.example")
+            .body(Body::empty())?;
+        let response = app.oneshot(request).await?;
+
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
+            "an arbitrary page must not be able to read this server; \
+             a permissive layer would hand the user's projects to any tab"
+        );
         Ok(())
     }
 

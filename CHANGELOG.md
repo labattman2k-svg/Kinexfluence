@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
 - `CreateProject` now accepts an optional explicit slug
 - `ProjectError` now includes `InvalidStatus` for schema-value validation
+- The core server answers CORS for the Atlas UI's origins only
+  (`http://localhost:5173` in development, and Tauri's `tauri://localhost` /
+  `http://tauri.localhost`). Other origins are refused, so a page the user
+  happens to visit cannot read their projects
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
