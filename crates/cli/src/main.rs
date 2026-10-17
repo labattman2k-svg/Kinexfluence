@@ -22,7 +22,19 @@ mod exit {
     pub const DATABASE: u8 = 4;
     /// The command line asked for something this program does not do.
     pub const USAGE: u8 = 1;
+    /// A project command was given something it cannot use.
+    ///
+    /// Shares its value with [`ADAPTER`]: from the caller's side both mean "the
+    /// input was wrong", and scripts react to the number, not the noun.
+    pub const INVALID_INPUT: u8 = 2;
+    /// A project lookup found nothing.
+    ///
+    /// Shares its value with [`NORMALIZER`] for the same reason.
+    pub const NOT_FOUND: u8 = 3;
 }
+
+/// Where the database lives unless the caller says otherwise.
+const DEFAULT_DB: &str = "~/.kinexfluence/kinexfluence.db";
 
 #[derive(Parser)]
 #[command(name = "kinexfluence", version, about = "Kinexfluence CLI")]
@@ -35,14 +47,57 @@ struct Cli {
 enum Cmd {
     /// Apply database migrations.
     Migrate {
-        #[arg(long, default_value = "~/.kinexfluence/kinexfluence.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
     /// Import a provider export file.
     Import {
         provider: String,
         path: PathBuf,
-        #[arg(long, default_value = "~/.kinexfluence/kinexfluence.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// Create, list, and inspect projects.
+    Project {
+        #[command(subcommand)]
+        cmd: ProjectCmd,
+    },
+}
+
+/// The `project` subcommands.
+#[derive(Subcommand)]
+enum ProjectCmd {
+    /// Create a project and print its id.
+    Create {
+        name: String,
+        /// Used as-is when given; generated from the name otherwise.
+        #[arg(long)]
+        slug: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        brief: Option<String>,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// List projects.
+    List {
+        #[arg(long, value_name = "STATUS")]
+        status: Option<String>,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// Show one project by id or slug.
+    Show {
+        id_or_slug: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// Change a project's status.
+    Status {
+        id_or_slug: String,
+        status: String,
+        #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
 }
@@ -58,13 +113,19 @@ enum CliError {
     Database(String),
     /// No adapter exists for the requested provider.
     UnknownProvider(String),
+    /// A project command was given something it cannot use.
+    InvalidInput(String),
+    /// A project lookup found nothing.
+    NotFound(String),
 }
 
 impl CliError {
     fn code(&self) -> u8 {
         match self {
             Self::Adapter(_) => exit::ADAPTER,
+            Self::InvalidInput(_) => exit::INVALID_INPUT,
             Self::Normalizer(_) => exit::NORMALIZER,
+            Self::NotFound(_) => exit::NOT_FOUND,
             Self::Database(_) => exit::DATABASE,
             Self::UnknownProvider(_) => exit::USAGE,
         }
@@ -82,6 +143,8 @@ impl std::fmt::Display for CliError {
             Self::UnknownProvider(provider) => {
                 write!(f, "unsupported provider: {provider} (try \"chatgpt\")")
             }
+            Self::InvalidInput(message) => write!(f, "invalid input: {message}"),
+            Self::NotFound(message) => write!(f, "not found: {message}"),
         }
     }
 }
@@ -103,6 +166,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     match cli.cmd {
         Cmd::Migrate { db } => migrate(&db).await,
         Cmd::Import { provider, path, db } => import(&provider, &path, &db).await,
+        Cmd::Project { cmd } => project(cmd).await,
     }
 }
 
@@ -177,6 +241,189 @@ fn print_summary(path: &Path, summary: &ImportSummary) {
         "  Attachments:   {} present, {} missing",
         summary.attachments_present(),
         summary.attachments_missing
+    );
+}
+
+// ---------------------------------------------------------------------------
+// project
+// ---------------------------------------------------------------------------
+
+async fn project(cmd: ProjectCmd) -> Result<(), CliError> {
+    match cmd {
+        ProjectCmd::Create {
+            name,
+            slug,
+            description,
+            brief,
+            db,
+        } => project_create(&name, slug, description, brief, &db).await,
+        ProjectCmd::List { status, db } => project_list(status, &db).await,
+        ProjectCmd::Show { id_or_slug, db } => project_show(&id_or_slug, &db).await,
+        ProjectCmd::Status {
+            id_or_slug,
+            status,
+            db,
+        } => project_status(&id_or_slug, &status, &db).await,
+    }
+}
+
+/// Map a domain error onto the CLI's exit-code taxonomy.
+fn project_error(error: kfx_core::project::ProjectError) -> CliError {
+    use kfx_core::project::ProjectError;
+
+    match error {
+        ProjectError::Db(error) => CliError::Database(error.to_string()),
+        ProjectError::NotFound(message) => CliError::NotFound(message),
+        ProjectError::InvalidSlug(message) => CliError::InvalidInput(message),
+        ProjectError::EmptyName => CliError::InvalidInput("project name is required".to_owned()),
+        ProjectError::DuplicateSlug(message) => {
+            CliError::InvalidInput(format!("duplicate slug: {message}"))
+        }
+        ProjectError::InvalidStatus(message) => CliError::InvalidInput(message),
+    }
+}
+
+async fn project_create(
+    name: &str,
+    slug: Option<String>,
+    description: Option<String>,
+    brief: Option<String>,
+    db: &str,
+) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let created = kfx_core::project::create(
+        &pool,
+        kfx_core::project::CreateProject {
+            name: name.to_owned(),
+            slug,
+            description,
+            brief,
+        },
+    )
+    .await
+    .map_err(project_error)?;
+
+    // The id alone goes to stdout so `PID=$(kinexfluence project create ...)`
+    // works. Everything a human would want to read goes to stderr.
+    println!("{}", created.id);
+    eprintln!(
+        "created project {:?} (slug: {}, status: {})",
+        created.name, created.slug, created.status
+    );
+
+    Ok(())
+}
+
+async fn project_list(status: Option<String>, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let projects = match status.as_deref() {
+        Some(status) => kfx_core::project::list_by_status(&pool, status).await,
+        None => kfx_core::project::list(&pool).await,
+    }
+    .map_err(project_error)?;
+
+    if projects.is_empty() {
+        // Not an error: an empty list is a valid answer, and exiting 3 for it
+        // would make "no projects yet" indistinguishable from "no such
+        // project".
+        eprintln!("no projects");
+        return Ok(());
+    }
+
+    println!("{:<38} {:<23} {:<10} NAME", "ID", "SLUG", "STATUS");
+    for project in &projects {
+        println!(
+            "{:<38} {:<23} {:<10} {}",
+            project.id, project.slug, project.status, project.name
+        );
+    }
+
+    Ok(())
+}
+
+async fn project_show(id_or_slug: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let project = kfx_core::project::resolve(&pool, id_or_slug)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(id_or_slug.to_owned()))?;
+
+    print_project(&project);
+    Ok(())
+}
+
+async fn project_status(id_or_slug: &str, status: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let project = kfx_core::project::resolve(&pool, id_or_slug)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(id_or_slug.to_owned()))?;
+
+    kfx_core::project::update_status(&pool, &project.id, status)
+        .await
+        .map_err(project_error)?;
+
+    eprintln!(
+        "project {} ({}) is now {}",
+        project.slug, project.id, status
+    );
+    Ok(())
+}
+
+fn print_project(project: &kfx_core::project::Project) {
+    println!("Project: {}", project.name);
+    println!("  ID:          {}", project.id);
+    println!("  Slug:        {}", project.slug);
+    println!("  Status:      {}", project.status);
+    println!(
+        "  Description: {}",
+        project.description.as_deref().unwrap_or("-")
+    );
+    println!("  Brief:       {}", project.brief.as_deref().unwrap_or("-"));
+    // Fixed width so the column does not jump between rows.
+    println!(
+        "  Created:     {}",
+        project.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+    );
+    println!(
+        "  Updated:     {}",
+        project.updated_at.format("%Y-%m-%d %H:%M:%S UTC")
     );
 }
 
