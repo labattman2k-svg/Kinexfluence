@@ -48,12 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `POST /v1/projects`, `GET /v1/projects/:id_or_slug`, and
   `PATCH /v1/projects/:id_or_slug`, with a structured JSON error body and
   status codes derived from `ProjectError`
+- Atlas UI (`ui/`): project list, create, and detail views wired to the HTTP
+  API. Plain CSS for now; the first end-to-end UI test is a follow-up
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
 - TypeScript configs now set `noEmit` to prevent compiled output in `src/`
 - `CreateProject` now accepts an optional explicit slug
 - `ProjectError` now includes `InvalidStatus` for schema-value validation
+- The core server answers CORS for the Atlas UI's origins only
+  (`http://localhost:5173` in development, and Tauri's `tauri://localhost` /
+  `http://tauri.localhost`). Other origins are refused, so a page the user
+  happens to visit cannot read their projects
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
