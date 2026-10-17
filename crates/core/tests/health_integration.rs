@@ -4,11 +4,15 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use kfx_core::server;
+use sqlx::SqlitePool;
 use tower::ServiceExt;
 
-#[tokio::test]
-async fn test_health_endpoint() {
-    let app = server::router();
+// The router now carries the connection pool as state, so this test needs a
+// real database the way every project request does. `#[sqlx::test]` gives it a
+// freshly migrated one.
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn test_health_endpoint(pool: SqlitePool) {
+    let app = server::router(pool);
 
     let request = Request::builder()
         .uri("/v1/health")

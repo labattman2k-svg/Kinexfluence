@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engineering standards framework (`docs/STANDARDS.md`)
 - Quality metrics and targets (`docs/QUALITY.md`)
 - Pull request template
-- Test suite across core, CLI, and adapters (82 tests)
+- Test suite across core, CLI, and adapters (92 tests)
 - CI gates for fmt, clippy, test, and cargo-deny
 - `deny.toml` with advisory allowlist
 - ChatGPT export parser (`crates/adapters`), fixture-tested. CLI wiring is
@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every mutation
 - CLI `project` subcommands: `create`, `list`, `show`, and `status`. `create`
   prints only the new id on stdout, so it can be captured in a script
+- Project HTTP API (`crates/core/src/api.rs`): `GET /v1/projects`,
+  `POST /v1/projects`, `GET /v1/projects/:id_or_slug`, and
+  `PATCH /v1/projects/:id_or_slug`, with a structured JSON error body and
+  status codes derived from `ProjectError`
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
