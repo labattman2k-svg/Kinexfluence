@@ -2,6 +2,7 @@
 pub mod config;
 pub mod error;
 pub mod normalizer;
+pub mod project;
 pub mod server;
 pub mod storage;
 pub mod writer;
