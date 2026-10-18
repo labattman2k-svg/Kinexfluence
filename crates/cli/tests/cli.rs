@@ -229,3 +229,62 @@ fn project_create_rejects_empty_name() -> Result<(), Box<dyn std::error::Error>>
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// cart
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn cart_add_and_list() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("cart.db");
+
+    // Import test data
+    import_command(&db_path).assert().success();
+
+    // Create a project
+    let created = project_command(
+        &db_path,
+        &["create", "Test Project", "--brief", "Testing cart"],
+    )
+    .output()?;
+    assert!(created.status.success());
+    let project_id = String::from_utf8(created.stdout)?.trim().to_owned();
+
+    // Get a snippet ID from the database
+    let pool = SqlitePool::connect(&format!("sqlite://{}", db_path.display())).await?;
+    let snippet_id: String = sqlx::query_scalar("SELECT id FROM snippet LIMIT 1")
+        .fetch_one(&pool)
+        .await?;
+    pool.close().await;
+
+    // Add to cart
+    let mut cmd = Command::cargo_bin("kinexfluence")?;
+    cmd.args([
+        "cart",
+        "add",
+        &snippet_id,
+        "--project",
+        &project_id,
+        "--db",
+        &db_path.to_string_lossy(),
+    ]);
+    cmd.assert().success();
+
+    // List cart
+    let mut cmd = Command::cargo_bin("kinexfluence")?;
+    cmd.args([
+        "cart",
+        "list",
+        "--project",
+        &project_id,
+        "--db",
+        &db_path.to_string_lossy(),
+    ]);
+    let output = cmd.output()?;
+    assert!(output.status.success());
+    let table = String::from_utf8(output.stdout)?;
+    assert!(!table.is_empty(), "cart should not be empty after add");
+
+    Ok(())
+}
