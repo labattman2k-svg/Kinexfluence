@@ -1,15 +1,15 @@
-//! HTTP API for projects.
+//! HTTP API for projects, snippets, and cart.
 //!
-//! The CLI talks to `project.rs` directly; this module is for the Atlas UI and
+//! The CLI talks to the domain modules directly; this module is for the Atlas UI and
 //! any other client that would rather not link the crate. Every handler is a
-//! thin call into `project`, so the rules live in one place and the HTTP layer
+//! thin call into the domain, so the rules live in one place and the HTTP layer
 //! only decides status codes and JSON shapes.
 
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{delete, get},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tracing::error;
 
+use crate::cart::{self, CartError, CartItem};
 use crate::project::{self, CreateProject, Project, ProjectError};
+use crate::snippet::Snippet;
 
 /// The body every error response carries.
 #[derive(Debug, Serialize)]
@@ -72,6 +74,26 @@ impl From<ProjectError> for ApiError {
                 Self::new("internal", "internal error")
             }
         }
+    }
+}
+
+impl From<CartError> for ApiError {
+    fn from(error: CartError) -> Self {
+        match error {
+            CartError::SnippetNotFound(message) => Self::new("not_found", message),
+            CartError::ProjectNotFound(message) => Self::new("not_found", message),
+            CartError::Database(source) => {
+                error!(target: "kfx.api", error = %source, "database failure serving a cart request");
+                Self::new("internal", "internal error")
+            }
+        }
+    }
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(source: sqlx::Error) -> Self {
+        error!(target: "kfx.api", error = %source, "database failure");
+        Self::new("internal", "internal error")
     }
 }
 
@@ -136,6 +158,9 @@ pub fn router(pool: SqlitePool) -> Router {
             "/v1/projects/:id_or_slug",
             get(get_project).patch(update_project),
         )
+        .route("/v1/snippets", get(list_snippets))
+        .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
+        .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
         .with_state(pool)
 }
 
@@ -193,4 +218,60 @@ async fn resolve(pool: &SqlitePool, id_or_slug: &str) -> Result<Project, ApiErro
     project::resolve(pool, id_or_slug)
         .await?
         .ok_or_else(|| ApiError::new("not_found", format!("project not found: {id_or_slug}")))
+}
+
+/// The body `GET /v1/snippets` accepts as query params.
+#[derive(Debug, Deserialize)]
+pub struct ListSnippetsQuery {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_limit() -> i64 {
+    50
+}
+
+async fn list_snippets(
+    State(pool): State<SqlitePool>,
+    axum::extract::Query(query): axum::extract::Query<ListSnippetsQuery>,
+) -> Result<Json<Vec<Snippet>>, ApiError> {
+    let snippets = crate::snippet::list(&pool, Some(query.limit), Some(query.offset)).await?;
+    Ok(Json(snippets))
+}
+
+/// The body `POST /v1/projects/:id/cart` accepts.
+#[derive(Debug, Deserialize)]
+pub struct AddToCartRequest {
+    pub snippet_ids: Vec<String>,
+}
+
+async fn add_to_cart(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+    Json(body): Json<AddToCartRequest>,
+) -> Result<(StatusCode, Json<Vec<String>>), ApiError> {
+    let mut item_ids = Vec::new();
+    for snippet_id in body.snippet_ids {
+        let item_id = cart::add_to_cart(&pool, &id, &snippet_id).await?;
+        item_ids.push(item_id);
+    }
+    Ok((StatusCode::CREATED, Json(item_ids)))
+}
+
+async fn list_cart(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<CartItem>>, ApiError> {
+    let items = cart::list_cart(&pool, &id).await?;
+    Ok(Json(items))
+}
+
+async fn remove_from_cart(
+    State(pool): State<SqlitePool>,
+    Path((project_id, item_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    cart::remove_from_cart(&pool, &project_id, &item_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
