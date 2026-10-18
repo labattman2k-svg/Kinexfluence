@@ -62,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   idempotent
 - Cart HTTP API: `GET /v1/snippets`, `POST` and `GET /v1/projects/:id/cart`, and
   `DELETE /v1/projects/:id/cart/:item_id`
+- CLI `snippets list [--limit] [--offset]` and the `cart add|list|remove` group,
+  which accept a project id or slug
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
