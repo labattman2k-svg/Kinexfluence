@@ -54,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   foreground, so the server can be started without the desktop shell
 - Playwright end-to-end suite (`ui/tests/e2e`), plus an `e2e` CI job that runs
   it against a real core and a real database
+- Snippet browsing service (`crates/core/src/snippet.rs`): `list` with limit and
+  offset for paging through imported fragments
+- Cart management service (`crates/core/src/cart.rs`): `add_to_cart`,
+  `list_cart`, and `remove_from_cart`. Materialises an `item` from a `snippet`
+  on first use and reuses it afterwards, so adding the same snippet twice is
+  idempotent
+- Cart HTTP API: `GET /v1/snippets`, `POST` and `GET /v1/projects/:id/cart`, and
+  `DELETE /v1/projects/:id/cart/:item_id`
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
