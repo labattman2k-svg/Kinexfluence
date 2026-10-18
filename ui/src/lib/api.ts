@@ -12,7 +12,7 @@
 
 /** Ports worth trying, in order. Mirrors the range the core searches. */
 const CANDIDATE_PORTS = [
-  47821, 47822, 47823, 47824, 47825, 47826, 47827, 47828, 47829, 47830,
+  47899, 47821, 47822, 47823, 47824, 47825, 47826, 47827, 47828, 47829, 47830,
 ];
 
 /** The port that answered last time, if any. */
