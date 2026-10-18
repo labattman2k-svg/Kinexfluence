@@ -259,3 +259,268 @@ async fn patch_status_rejects_invalid_status(pool: SqlitePool) {
         "a rejected transition must not change the stored status"
     );
 }
+
+// ---------------------------------------------------------------------------
+// snippets
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_snippets_empty(pool: SqlitePool) {
+    let (status, body) = call(&pool, Method::GET, "/v1/snippets?limit=10", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]), "empty snippet table is empty array");
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_snippets_returns_snippets(pool: SqlitePool) {
+    // Create test data
+    let conversation_id = uuid::Uuid::now_v7().to_string();
+    let message_id = uuid::Uuid::now_v7().to_string();
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+
+    // conversation.source_id references source(id) and nothing seeds it.
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'Test')")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES (?, ?, 'user', '{}')",
+    )
+    .bind(&message_id)
+    .bind(&conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'code', 'test', 'hash')"
+    )
+    .bind(&snippet_id)
+    .bind(&message_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (status, body) = call(&pool, Method::GET, "/v1/snippets?limit=10", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let list = body.as_array().expect("array");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["id"], snippet_id);
+}
+
+// ---------------------------------------------------------------------------
+// cart
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn add_to_cart_creates_and_returns_item_ids(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    // Create test snippet
+    let conversation_id = uuid::Uuid::now_v7().to_string();
+    let message_id = uuid::Uuid::now_v7().to_string();
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+
+    // conversation.source_id references source(id) and nothing seeds it.
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'Test')")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES (?, ?, 'user', '{}')",
+    )
+    .bind(&message_id)
+    .bind(&conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'code', 'test', 'hash')"
+    )
+    .bind(&snippet_id)
+    .bind(&message_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    let item_ids = body.as_array().expect("array");
+    assert_eq!(item_ids.len(), 1);
+    assert!(item_ids[0].is_string());
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_cart_returns_items(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    // Create test snippet
+    let conversation_id = uuid::Uuid::now_v7().to_string();
+    let message_id = uuid::Uuid::now_v7().to_string();
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+
+    // conversation.source_id references source(id) and nothing seeds it.
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'Test')")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES (?, ?, 'user', '{}')",
+    )
+    .bind(&message_id)
+    .bind(&conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'code', 'test', 'hash')"
+    )
+    .bind(&snippet_id)
+    .bind(&message_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Add to cart
+    call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+
+    let (status, body) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/cart"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let items = body.as_array().expect("array");
+    assert_eq!(items.len(), 1);
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn remove_from_cart_deletes_item(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    // Create test snippet
+    let conversation_id = uuid::Uuid::now_v7().to_string();
+    let message_id = uuid::Uuid::now_v7().to_string();
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+
+    // conversation.source_id references source(id) and nothing seeds it.
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'Test')")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES (?, ?, 'user', '{}')",
+    )
+    .bind(&message_id)
+    .bind(&conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'code', 'test', 'hash')"
+    )
+    .bind(&snippet_id)
+    .bind(&message_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Add to cart
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "adding to the cart creates it");
+    let item_id = body.as_array().expect("array")[0]
+        .as_str()
+        .expect("item_id");
+
+    // Remove from cart
+    let (status, _) = call(
+        &pool,
+        Method::DELETE,
+        &format!("/v1/projects/{project_id}/cart/{item_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Verify empty
+    let (_, body) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/cart"),
+        None,
+    )
+    .await;
+    assert_eq!(body, json!([]));
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn add_to_cart_invalid_snippet_returns_404(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": ["nonexistent"] })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found");
+}
