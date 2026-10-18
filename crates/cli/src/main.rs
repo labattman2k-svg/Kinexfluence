@@ -72,6 +72,16 @@ enum Cmd {
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
+    /// Browse and manage snippets.
+    Snippets {
+        #[command(subcommand)]
+        cmd: SnippetsCmd,
+    },
+    /// Manage project carts.
+    Cart {
+        #[command(subcommand)]
+        cmd: CartCmd,
+    },
 }
 
 /// The `project` subcommands.
@@ -107,6 +117,48 @@ enum ProjectCmd {
     Status {
         id_or_slug: String,
         status: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+}
+
+/// The `snippets` subcommands.
+#[derive(Subcommand)]
+enum SnippetsCmd {
+    /// List snippets with pagination.
+    List {
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+        #[arg(long, default_value_t = 0)]
+        offset: i64,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+}
+
+/// The `cart` subcommands.
+#[derive(Subcommand)]
+enum CartCmd {
+    /// Add a snippet to a project's cart.
+    Add {
+        snippet_id: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// List items in a project's cart.
+    List {
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
+    /// Remove an item from a project's cart.
+    Remove {
+        item_id: String,
+        #[arg(long)]
+        project: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
@@ -178,6 +230,8 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Import { provider, path, db } => import(&provider, &path, &db).await,
         Cmd::Project { cmd } => project(cmd).await,
         Cmd::Serve { port, db } => serve(port, &db).await,
+        Cmd::Snippets { cmd } => snippets(cmd).await,
+        Cmd::Cart { cmd } => cart(cmd).await,
     }
 }
 
@@ -458,6 +512,151 @@ fn print_project(project: &kfx_core::project::Project) {
         "  Updated:     {}",
         project.updated_at.format("%Y-%m-%d %H:%M:%S UTC")
     );
+}
+
+// ---------------------------------------------------------------------------
+// snippets
+// ---------------------------------------------------------------------------
+
+async fn snippets(cmd: SnippetsCmd) -> Result<(), CliError> {
+    match cmd {
+        SnippetsCmd::List { limit, offset, db } => snippets_list(limit, offset, &db).await,
+    }
+}
+
+async fn snippets_list(limit: i64, offset: i64, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let snippets = kfx_core::snippet::list(&pool, Some(limit), Some(offset))
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    if snippets.is_empty() {
+        eprintln!("no snippets");
+        return Ok(());
+    }
+
+    println!("{:<38} {:<8} KIND", "ID", "TYPE");
+    for snippet in &snippets {
+        println!(
+            "{:<38} {:<8} {}",
+            snippet.id,
+            snippet.kind,
+            snippet.text.lines().next().unwrap_or("")
+        );
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// cart
+// ---------------------------------------------------------------------------
+
+async fn cart(cmd: CartCmd) -> Result<(), CliError> {
+    match cmd {
+        CartCmd::Add {
+            snippet_id,
+            project,
+            db,
+        } => cart_add(&snippet_id, &project, &db).await,
+        CartCmd::List { project, db } => cart_list(&project, &db).await,
+        CartCmd::Remove {
+            item_id,
+            project,
+            db,
+        } => cart_remove(&item_id, &project, &db).await,
+    }
+}
+
+fn cart_error(error: kfx_core::cart::CartError) -> CliError {
+    use kfx_core::cart::CartError;
+
+    match error {
+        CartError::SnippetNotFound(message) => CliError::NotFound(message),
+        CartError::ProjectNotFound(message) => CliError::NotFound(message),
+        CartError::Database(error) => CliError::Database(error.to_string()),
+    }
+}
+
+async fn cart_add(snippet_id: &str, project_id: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let item_id = kfx_core::cart::add_to_cart(&pool, project_id, snippet_id)
+        .await
+        .map_err(cart_error)?;
+
+    println!("{}", item_id);
+    eprintln!("added snippet {} to cart", snippet_id);
+    Ok(())
+}
+
+async fn cart_list(project_id: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let items = kfx_core::cart::list_cart(&pool, project_id)
+        .await
+        .map_err(cart_error)?;
+
+    if items.is_empty() {
+        eprintln!("cart is empty");
+        return Ok(());
+    }
+
+    println!("{:<38} {:<8} KIND", "ITEM ID", "TYPE");
+    for item in &items {
+        println!(
+            "{:<38} {:<8} {}",
+            item.item_id,
+            item.kind,
+            item.text.lines().next().unwrap_or("")
+        );
+    }
+
+    Ok(())
+}
+
+async fn cart_remove(item_id: &str, project_id: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    kfx_core::cart::remove_from_cart(&pool, project_id, item_id)
+        .await
+        .map_err(cart_error)?;
+
+    eprintln!("removed item {} from cart", item_id);
+    Ok(())
 }
 
 fn storage_config(path: &Path) -> kfx_core::StorageConfig {
