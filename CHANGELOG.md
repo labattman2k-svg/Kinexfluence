@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status codes derived from `ProjectError`
 - Atlas UI (`ui/`): project list, create, and detail views wired to the HTTP
   API. Plain CSS for now; the first end-to-end UI test is a follow-up
+- `kinexfluence serve --port <port> --db <path>`: runs the HTTP API in the
+  foreground, so the server can be started without the desktop shell
+- Playwright end-to-end suite (`ui/tests/e2e`), plus an `e2e` CI job that runs
+  it against a real core and a real database
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
@@ -60,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`http://localhost:5173` in development, and Tauri's `tauri://localhost` /
   `http://tauri.localhost`). Other origins are refused, so a page the user
   happens to visit cannot read their projects
+- The Atlas UI discovers the core's port (probing 47821-47830 and caching the
+  answer) instead of assuming 47821, which the core only uses when it is free
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x

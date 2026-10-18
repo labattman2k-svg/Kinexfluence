@@ -50,3 +50,36 @@ jobs:
       - run: npm --prefix ui run build
       - run: npm --prefix extension ci || npm --prefix extension install
       - run: npm --prefix extension run build
+
+  # The end-to-end test drives a real browser against a real core, so it needs
+  # both toolchains. It is the only job that proves the UI can actually reach
+  # the API -- the js job builds the frontend and never runs it.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm --prefix ui ci || npm --prefix ui install
+      - name: Install Chromium
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+      # Pre-build so Playwright's webServer timeout measures the test, not a
+      # cold compile.
+      - name: Build the CLI the E2E server runs
+        run: cargo build -p kfx-cli
+      - run: npm --prefix ui run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            ui/test-results
+            ui/playwright-report
+          retention-days: 7

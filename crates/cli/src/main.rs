@@ -62,6 +62,16 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ProjectCmd,
     },
+    /// Run the HTTP API server.
+    ///
+    /// Mostly for headless use and E2E tests: the desktop shell starts the
+    /// server itself. Runs until interrupted.
+    Serve {
+        #[arg(long, default_value_t = 47821)]
+        port: u16,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
 }
 
 /// The `project` subcommands.
@@ -167,7 +177,30 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Migrate { db } => migrate(&db).await,
         Cmd::Import { provider, path, db } => import(&provider, &path, &db).await,
         Cmd::Project { cmd } => project(cmd).await,
+        Cmd::Serve { port, db } => serve(port, &db).await,
     }
+}
+
+/// Run the API server in the foreground until interrupted.
+///
+/// `kfx_core::server::serve` owns everything else: it finds a free port if the
+/// requested one is taken, opens and migrates the database, and serves. This
+/// only supplies the configuration.
+async fn serve(port: u16, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+
+    let config = kfx_core::Config {
+        server: kfx_core::ServerConfig {
+            // Loopback only, per §5. This is not configurable through the CLI.
+            host: "127.0.0.1".to_owned(),
+            port,
+        },
+        storage: storage_config(&path),
+    };
+
+    kfx_core::server::serve(config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))
 }
 
 async fn migrate(db: &str) -> Result<(), CliError> {
