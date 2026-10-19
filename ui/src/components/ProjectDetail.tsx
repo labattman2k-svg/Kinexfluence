@@ -5,9 +5,10 @@ interface Props {
   /** A project id or slug — the API accepts either. */
   idOrSlug: string;
   onBack: () => void;
+  onOpenCart: (projectId: string) => void;
 }
 
-export function ProjectDetail({ idOrSlug, onBack }: Props) {
+export function ProjectDetail({ idOrSlug, onBack, onOpenCart }: Props) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,9 +39,16 @@ export function ProjectDetail({ idOrSlug, onBack }: Props) {
     <section className="kfx-panel">
       <div className="kfx-panel-head">
         <h2>{project ? project.name : "Project"}</h2>
-        <button type="button" onClick={onBack}>
-          Back
-        </button>
+        <div className="kfx-panel-actions">
+          <button type="button" onClick={onBack}>
+            Back
+          </button>
+          {project && (
+            <button type="button" onClick={() => onOpenCart(project.id)}>
+              Open Cart
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
