@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DELETE /v1/projects/:id/cart/:item_id`
 - CLI `snippets list [--limit] [--offset]` and the `cart add|list|remove` group,
   which accept a project id or slug
+- API client methods: listSnippets, getCart, addToCart, removeFromCart
+- SnippetList UI component: displays imported snippets with checkboxes
+- CartSidebar UI component: displays cart items with remove buttons
+- Split-view layout: snippet browser on left, cart sidebar on right
+- Cart flow E2E test: create project, add to cart, remove from cart
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
