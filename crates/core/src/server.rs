@@ -26,7 +26,11 @@ fn cors_layer() -> CorsLayer {
             HeaderValue::from_static("tauri://localhost"),
             HeaderValue::from_static("http://tauri.localhost"),
         ]))
-        .allow_methods([Method::GET, Method::POST, Method::PATCH])
+        // DELETE arrived with the cart routes. A browser preflights it, so
+        // omitting it here means the request never reaches the handler: the
+        // preflight fails, `fetch` rejects, and removing from the cart looks
+        // like the server went away.
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
         .allow_headers([header::CONTENT_TYPE])
 }
 
@@ -207,6 +211,36 @@ mod tests {
                 .is_none(),
             "an arbitrary page must not be able to read this server; \
              a permissive layer would hand the user's projects to any tab"
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../schema/migrations")]
+    async fn cors_allows_delete_for_the_ui(pool: SqlitePool) -> anyhow::Result<()> {
+        let app = router(pool);
+
+        // A real preflight: the browser sends OPTIONS before a DELETE and
+        // refuses to send the request unless DELETE comes back in the allowed
+        // methods. Omitting it leaves the handler unreachable from the UI while
+        // the endpoint tests, which speak HTTP directly, keep passing.
+        let request = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/v1/projects/p/cart/i")
+            .header("origin", "http://localhost:5173")
+            .header("access-control-request-method", "DELETE")
+            .body(Body::empty())?;
+        let response = app.oneshot(request).await?;
+
+        let allowed = response
+            .headers()
+            .get("access-control-allow-methods")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+
+        assert!(
+            allowed.contains("DELETE"),
+            "removing from the cart is a DELETE, and a browser preflights it; \
+             allowed methods were {allowed:?}"
         );
         Ok(())
     }

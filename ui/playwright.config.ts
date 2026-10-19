@@ -24,8 +24,13 @@ export default defineConfig({
     {
       // A real core on a real socket, with its own database under `target/`,
       // which is already ignored by git.
+      //
+      // The import runs first and unconditionally: the cart is only meaningful
+      // when there are snippets, and a fresh CI database has none. Re-importing
+      // is idempotent -- the writer skips conversations whose content hash is
+      // already present -- so a reused local database does not grow.
       command:
-        "cargo run --quiet -p kfx-cli -- serve --port 47899 --db ./target/e2e.db",
+        "cargo run --quiet -p kfx-cli -- import chatgpt fixtures/chatgpt/sample-export.json --db ./target/e2e.db && cargo run --quiet -p kfx-cli -- serve --port 47899 --db ./target/e2e.db",
       cwd: "..",
       // Wait for the health endpoint rather than the port: a listening socket
       // that is still migrating the database would answer late, and Playwright

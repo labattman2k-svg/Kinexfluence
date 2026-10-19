@@ -47,6 +47,32 @@ export interface NewProject {
   brief?: string;
 }
 
+/** A snippet as the API renders it. */
+export interface Snippet {
+  id: string;
+  message_id: string;
+  block_index: number;
+  segment_index: number;
+  granularity: string;
+  kind: string;
+  text: string;
+  language: string | null;
+  char_start: number | null;
+  char_end: number | null;
+  hash: string;
+  created_at: string;
+}
+
+/** A cart item as the API renders it. */
+export interface CartItem {
+  item_id: string;
+  snippet_id: string | null;
+  kind: string;
+  title: string | null;
+  text: string;
+  added_at: string;
+}
+
 /**
  * A failure the API reported, or a failure to reach it at all.
  *
@@ -137,7 +163,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw await toApiError(response);
   }
 
-  return (await response.json()) as T;
+  // 204 No Content is a legitimate success with an empty body, and
+  // `response.json()` throws on an empty string. DELETE answers 204, so
+  // assuming JSON everywhere made removing from the cart look like a failure:
+  // it rejected, the caller's catch swallowed it, and the sidebar never
+  // changed.
+  const text = await response.text();
+  if (text.length === 0) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 /** Every project, oldest first. */
@@ -156,4 +192,30 @@ export function createProject(data: NewProject): Promise<Project> {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** List snippets with pagination. */
+export function listSnippets(limit: number = 50, offset: number = 0): Promise<Snippet[]> {
+  return request<Snippet[]>(`/v1/snippets?limit=${limit}&offset=${offset}`);
+}
+
+/** Get cart items for a project. */
+export function getCart(projectId: string): Promise<CartItem[]> {
+  return request<CartItem[]>(`/v1/projects/${encodeURIComponent(projectId)}/cart`);
+}
+
+/** Add snippets to a project's cart. Returns the created item IDs. */
+export function addToCart(projectId: string, snippetIds: string[]): Promise<string[]> {
+  return request<string[]>(`/v1/projects/${encodeURIComponent(projectId)}/cart`, {
+    method: "POST",
+    body: JSON.stringify({ snippet_ids: snippetIds }),
+  });
+}
+
+/** Remove an item from a project's cart. */
+export function removeFromCart(projectId: string, itemId: string): Promise<void> {
+  return request<void>(
+    `/v1/projects/${encodeURIComponent(projectId)}/cart/${encodeURIComponent(itemId)}`,
+    { method: "DELETE" }
+  );
 }

@@ -42,6 +42,11 @@ body {
 }
 .kfx-panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
 
+.kfx-panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Controls --------------------------------------------------------------- */
 
 button {
@@ -144,4 +149,84 @@ textarea:focus-visible,
   padding: 8px 12px;
   margin: 0 0 16px;
   background: rgba(255, 138, 138, 0.06);
+}
+
+/* List -------------------------------------------------------------------- */
+
+.kfx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.kfx-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--kfx-border);
+}
+.kfx-list-item:last-child { border-bottom: none; }
+
+/* Snippet List ----------------------------------------------------------- */
+
+.kfx-cart-view {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.kfx-snippet-list {
+  background: var(--kfx-surface);
+  border: 1px solid var(--kfx-border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.kfx-list-content {
+  flex: 1;
+  cursor: pointer;
+}
+
+.kfx-snippet-kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--kfx-muted);
+  margin-bottom: 4px;
+}
+
+.kfx-snippet-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Cart Sidebar ----------------------------------------------------------- */
+
+.kfx-cart-sidebar {
+  background: var(--kfx-surface);
+  border: 1px solid var(--kfx-border);
+  border-radius: 10px;
+  padding: 20px;
+  height: fit-content;
+}
+
+.kfx-cart-item-content {
+  flex: 1;
+}
+
+.kfx-remove-btn {
+  background: none;
+  border: none;
+  color: var(--kfx-muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.kfx-remove-btn:hover {
+  color: var(--kfx-danger);
+  border: none;
 }
