@@ -70,6 +70,7 @@ export function App() {
           <CartSidebar
             projectId={view.projectId}
             cartReloadToken={cartReloadToken}
+            onCartChanged={() => setCartReloadToken((token) => token + 1)}
             onBack={() => setView({ kind: "list" })}
           />
         </div>

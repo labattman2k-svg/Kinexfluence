@@ -4,10 +4,12 @@ import { getCart, removeFromCart, type CartItem } from "../lib/api";
 interface Props {
   projectId: string;
   cartReloadToken: number;
+  /** Bumped by the parent so this list refetches after a mutation. */
+  onCartChanged: () => void;
   onBack: () => void;
 }
 
-export function CartSidebar({ projectId, cartReloadToken, onBack }: Props) {
+export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack }: Props) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,8 +37,16 @@ export function CartSidebar({ projectId, cartReloadToken, onBack }: Props) {
   }, [projectId, cartReloadToken]);
 
   const handleRemove = async (itemId: string) => {
-    await removeFromCart(projectId, itemId);
-    // The parent will bump cartReloadToken, triggering a re-fetch
+    try {
+      await removeFromCart(projectId, itemId);
+    } catch (cause) {
+      setError((cause as Error).message);
+      return;
+    }
+    // The parent bumps `cartReloadToken`, which re-runs the effect above. Doing
+    // it locally instead would leave `SnippetList`'s checkboxes stale, since it
+    // keeps its own copy of the cart.
+    onCartChanged();
   };
 
   return (
