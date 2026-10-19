@@ -163,7 +163,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw await toApiError(response);
   }
 
-  return (await response.json()) as T;
+  // 204 No Content is a legitimate success with an empty body, and
+  // `response.json()` throws on an empty string. DELETE answers 204, so
+  // assuming JSON everywhere made removing from the cart look like a failure:
+  // it rejected, the caller's catch swallowed it, and the sidebar never
+  // changed.
+  const text = await response.text();
+  if (text.length === 0) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 /** Every project, oldest first. */
