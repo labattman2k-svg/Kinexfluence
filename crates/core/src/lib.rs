@@ -5,6 +5,7 @@ pub mod config;
 pub mod error;
 pub mod normalizer;
 pub mod project;
+pub mod scorer;
 pub mod server;
 pub mod snippet;
 pub mod storage;
