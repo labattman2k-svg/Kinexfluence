@@ -24,6 +24,40 @@ pub const MARKERS: &[&str] = &[
     "action item",
 ];
 
+// ---------------------------------------------------------------------------
+// Composition
+//
+// The weights are named and summed rather than written inline, because the sum
+// is load-bearing: it is the denominator that turns a raw score into [0, 1].
+// Hardcoding it would let a future signal change quietly rescale every score.
+// ---------------------------------------------------------------------------
+
+const W_CODE: f32 = 0.20;
+const W_MARKER: f32 = 0.15;
+const W_ENTITY: f32 = 0.15;
+const W_NOVELTY: f32 = 0.05;
+const W_POSITION: f32 = 0.05;
+const W_PROVENANCE: f32 = 0.05;
+
+/// The highest raw score reachable while S1 (semantic similarity, weight 0.35)
+/// is unimplemented.
+///
+/// 0.65 today; it becomes 1.0 when S1 lands, and the division below then
+/// becomes a no-op rather than needing an edit.
+const MAX_RAW: f32 = W_CODE + W_MARKER + W_ENTITY + W_NOVELTY + W_POSITION + W_PROVENANCE;
+
+/// Slope and offset of the sigmoid, chosen against two fixed points:
+///
+/// - `raw_normalized = 1.0` (every signal perfect) -> 0.88, comfortably past
+///   the 0.70 auto-select threshold.
+/// - `raw_normalized = 0.5` (a middling snippet) -> 0.35, so an unremarkable
+///   fragment stays visibly unremarkable.
+///
+/// Solving `sigmoid(s*1.0 + o) = 0.88` and `sigmoid(s*0.5 + o) = 0.35` gives
+/// s ~= 5.2 and o ~= -3.2. A raw score of 0 maps to ~0.04.
+const SCORE_SLOPE: f32 = 5.2;
+const SCORE_OFFSET: f32 = 3.2;
+
 /// Detailed breakdown of heuristic scores for a snippet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScoreDetails {
@@ -201,18 +235,8 @@ pub fn score(profile: &ProjectProfile, snippet: &ScoredSnippetInput) -> ScoreDet
     // S7: Provenance (stubbed to 0.5)
     let provenance = 0.5_f32;
 
-    // Composition
-    let raw = 0.20 * code
-        + 0.15 * marker
-        + 0.15 * entity
-        + 0.05 * novelty
-        + 0.05 * position
-        + 0.05 * provenance;
-
-    let final_score = 1.0 / (1.0 + (-(raw - 1.2)).exp());
-
     ScoreDetails {
-        score: final_score,
+        score: compose(code, marker, entity, novelty, position, provenance),
         code,
         marker,
         entity,
@@ -220,6 +244,35 @@ pub fn score(profile: &ProjectProfile, snippet: &ScoredSnippetInput) -> ScoreDet
         position,
         provenance,
     }
+}
+
+/// Compose six signal values into the final score.
+///
+/// Separate from [`score`] so the mapping can be exercised at points the signal
+/// functions cannot produce: S2 is binary, and S5 and S7 are stubbed at 0.5, so
+/// no real snippet has every signal at 0.5. Testing only through `score` leaves
+/// the middle of the curve unverified.
+pub fn compose(
+    code: f32,
+    marker: f32,
+    entity: f32,
+    novelty: f32,
+    position: f32,
+    provenance: f32,
+) -> f32 {
+    let raw = W_CODE * code
+        + W_MARKER * marker
+        + W_ENTITY * entity
+        + W_NOVELTY * novelty
+        + W_POSITION * position
+        + W_PROVENANCE * provenance;
+
+    // Normalised by what is actually reachable, not by an assumed 1.0. Leaving
+    // it unscaled capped a perfect snippet at MAX_RAW (0.65), and the sigmoid
+    // then mapped that to ~0.37 -- under the 0.70 auto-select threshold, so the
+    // top third of the scale was dead and no amount of quality could reach it.
+    let raw_normalized = (raw / MAX_RAW).clamp(0.0, 1.0);
+    1.0 / (1.0 + (-(SCORE_SLOPE * raw_normalized - SCORE_OFFSET)).exp())
 }
 
 /// Convenience alias for [`score`].

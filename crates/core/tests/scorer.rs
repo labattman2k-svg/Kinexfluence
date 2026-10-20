@@ -3,7 +3,7 @@
 use chrono::Utc;
 use kfx_core::project::Project;
 use kfx_core::scorer::{
-    build_profile, extract_entities, score, ProjectProfile, ScoredSnippetInput,
+    build_profile, compose, extract_entities, score, ProjectProfile, ScoredSnippetInput,
 };
 
 fn blank_profile() -> ProjectProfile {
@@ -230,4 +230,113 @@ fn missing_metadata_defaults_to_half() {
         total_turns: Some(0),
     };
     assert_eq!(score(&profile, &input_zero_total).position, 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// The composition curve
+//
+// The bounds test above only asserts that a score lands in (0, 1) and that a
+// better snippet outscores a worse one. Both are satisfied by a curve that
+// never leaves the bottom third, which is exactly what the first version of
+// this mapping did: the weights sum to 0.65 while S1 is unimplemented, so an
+// unscaled raw score topped out at 0.65 and `sigmoid(raw - 1.2)` turned that
+// into ~0.37. Every snippet was grey and the 0.70 auto-select threshold was
+// unreachable by any input.
+//
+// These tests pin the shape of the curve, not just its range.
+// ---------------------------------------------------------------------------
+
+/// The score a perfect snippet would get if every signal, including the two
+/// stubbed ones, could reach 1.0.
+#[test]
+fn perfect_signals_score_above_the_auto_select_threshold() {
+    let perfect = compose(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+
+    assert!(
+        perfect > 0.85,
+        "a perfect snippet must be visibly excellent, got {perfect}"
+    );
+    assert!(
+        perfect > 0.70,
+        "and must clear the auto-select threshold, got {perfect}"
+    );
+}
+
+/// The best score a *real* snippet can reach today: S2 is binary, and S5/S7 are
+/// stubbed at 0.5, so novelty and provenance cannot both be 1.0 yet.
+#[test]
+fn best_realisable_snippet_clears_the_auto_select_threshold() {
+    let profile = ProjectProfile {
+        name: "Test".to_string(),
+        description: None,
+        brief: None,
+        entities: vec!["alpha".to_string(), "beta".to_string()],
+    };
+    let input = ScoredSnippetInput {
+        kind: "code".to_string(),
+        text: "we decided the fix is required for root cause in alpha beta".to_string(),
+        role: Some("assistant".to_string()),
+        turn_index: Some(9),
+        total_turns: Some(10),
+    };
+
+    let scored = score(&profile, &input);
+
+    assert!(scored.code == 1.0 && scored.marker == 1.0 && scored.entity == 1.0);
+    assert_eq!(scored.position, 1.0);
+
+    assert!(
+        scored.score > 0.80,
+        "the best realisable snippet should score above 0.80, got {}",
+        scored.score
+    );
+    assert!(
+        scored.score > 0.70,
+        "and must clear the 0.70 auto-select threshold, got {}",
+        scored.score
+    );
+}
+
+/// A middling snippet sits near a third. This is the point a user reads as
+/// "maybe", so it must not drift into either "yes" or "no".
+///
+/// Driven through `compose` rather than `score`: `code` is binary and two
+/// signals are stubbed, so no real input has all six at 0.5.
+#[test]
+fn neutral_signals_score_around_a_third() {
+    let neutral = compose(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+
+    assert!(
+        (neutral - 0.35).abs() < 0.05,
+        "a neutral snippet should land near 0.35, got {neutral}"
+    );
+}
+
+/// The floor stays near zero, so a poor snippet is clearly poor rather than
+/// being lifted by the offset.
+#[test]
+fn worst_signals_score_near_zero() {
+    let worst = compose(0.0, 0.0, 0.0, 0.5, 0.0, 0.5);
+
+    assert!(
+        worst < 0.10,
+        "a snippet hitting nothing should score near zero, got {worst}"
+    );
+}
+
+/// The curve is monotonic across the whole range, so a better snippet can never
+/// score lower than a worse one.
+#[test]
+fn composition_is_monotonic() {
+    let mut previous = -1.0;
+
+    for step in 0..=10 {
+        let level = step as f32 / 10.0;
+        let scored = compose(level, level, level, level, level, level);
+        assert!(
+            scored > previous,
+            "score must increase with every signal at {level}: {scored} vs {previous}"
+        );
+        previous = scored;
+    }
 }
