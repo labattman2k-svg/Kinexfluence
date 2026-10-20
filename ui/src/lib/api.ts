@@ -63,6 +63,30 @@ export interface Snippet {
   created_at: string;
 }
 
+/**
+ * The per-signal breakdown behind a score.
+ *
+ * The field names mirror the server's `ScoreDetails`, where the numbers are
+ * the S2-S7 signals: `code`, `marker`, `entity`, `novelty`, `position`, and
+ * `provenance`. `novelty` and `provenance` are stubs at 0.5 until embeddings
+ * land, and the UI says so rather than presenting them as measurements.
+ */
+export interface ScoreDetails {
+  score: number;
+  code: number;
+  marker: number;
+  entity: number;
+  novelty: number;
+  position: number;
+  provenance: number;
+}
+
+/** A snippet with the score the server gave it, and the reasons behind it. */
+export interface ScoredSnippet extends Snippet {
+  score: number;
+  score_details: ScoreDetails;
+}
+
 /** A cart item as the API renders it. */
 export interface CartItem {
   item_id: string;
@@ -197,6 +221,18 @@ export function createProject(data: NewProject): Promise<Project> {
 /** List snippets with pagination. */
 export function listSnippets(limit: number = 50, offset: number = 0): Promise<Snippet[]> {
   return request<Snippet[]>(`/v1/snippets?limit=${limit}&offset=${offset}`);
+}
+
+/**
+ * List a project's snippets with the score the server computed for each.
+ *
+ * Sorted by descending score by the server, so the first entry is the best
+ * candidate for the project.
+ */
+export function listScoredSnippets(projectId: string): Promise<ScoredSnippet[]> {
+  return request<ScoredSnippet[]>(
+    `/v1/projects/${encodeURIComponent(projectId)}/snippets/scored`
+  );
 }
 
 /** Get cart items for a project. */
