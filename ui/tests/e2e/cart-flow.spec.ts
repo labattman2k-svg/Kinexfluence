@@ -37,30 +37,44 @@ test("adds a snippet to the cart and removes it", async ({ page }) => {
   // The fixture import must have produced snippets. Asserting this instead of
   // skipping is the difference between a test and a formality.
   await expect(page.getByRole("heading", { name: "Snippets" })).toBeVisible();
-  const checkboxes = page.locator('input[type="checkbox"]');
+  const checkboxes = page.locator('.kfx-snippet-list input[type="checkbox"]');
   await expect(checkboxes.first()).toBeVisible();
   expect(await checkboxes.count()).toBeGreaterThan(0);
 
-  // Tick the first snippet. The checkbox is the control; its label is the text.
-  const first = checkboxes.first();
-  await expect(first).not.toBeChecked();
-  // `check()` insists the box flips synchronously, but this is a controlled
-  // input: the tick only arrives after the add round-trips and the cart is
-  // refetched. Click, then wait for the state.
-  await first.click();
-  await expect(first).toBeChecked();
+  // The high-scoring snippets start checked, so the selection is put into a
+  // known state first: exactly one snippet, chosen here, and nothing else.
+  // The button below adds everything that is ticked, so a leftover default
+  // check would make the cart hold more than the one item this test is
+  // about.
+  const target = checkboxes.last();
+  for (const checkbox of await checkboxes.all()) {
+    if (await checkbox.isChecked()) {
+      await checkbox.uncheck();
+    }
+  }
+  await expect(checkboxes.first()).not.toBeChecked();
+
+  // Ticking selects a snippet; it does not put it in the cart. The cart is
+  // committed by the button below, which is what the scoring flow changed --
+  // a default check is a proposal, not a decision.
+  await target.click();
+  await expect(target).toBeChecked();
+
+  const addButton = page.getByRole("button", { name: /Add \d+ to Cart/ });
+  await expect(addButton).toHaveText("Add 1 to Cart");
+  await addButton.click();
 
   // The sidebar is a separate component with its own fetch, so this proves the
   // cart mutation reached the server and came back.
   const cartItems = page.locator(".kfx-cart-sidebar .kfx-list-item");
   await expect(cartItems).toHaveCount(1);
   await expect(page.getByText("Cart is empty.")).toHaveCount(0);
-  await expect(first).toBeChecked();
+  await expect(target).toBeChecked();
 
   // Remove it again.
   await page.getByRole("button", { name: "Remove from cart" }).click();
 
   await expect(cartItems).toHaveCount(0);
   await expect(page.getByText("Cart is empty.")).toBeVisible();
-  await expect(first).not.toBeChecked();
+  await expect(target).not.toBeChecked();
 });
