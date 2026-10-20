@@ -74,6 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entities, novelty stub, position within conversation turns, and source
   provenance), composed through a sigmoid normalised by the reachable weight
   total so a strong snippet can clear the 0.70 auto-select threshold
+- Scored snippets HTTP API: `GET /v1/projects/:id/snippets/scored`, returning
+  each candidate with its final score and per-signal breakdown, sorted by
+  descending score
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
