@@ -524,3 +524,112 @@ async fn add_to_cart_invalid_snippet_returns_404(pool: SqlitePool) {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "not_found");
 }
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_scored_snippets_returns_sorted_by_score(pool: SqlitePool) {
+    let project = create(&pool, "Compiler Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    let conversation_id = "conv-1";
+    let message_id_1 = "msg-1";
+    let message_id_2 = "msg-2";
+
+    sqlx::query("INSERT INTO source (id, name) VALUES ('source-1', 'ChatGPT')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'Scored Test')",
+    )
+    .bind(conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, turn_index, content_json) VALUES (?, ?, 'user', 0, '{}')",
+    )
+    .bind(message_id_1)
+    .bind(conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, turn_index, content_json) VALUES (?, ?, 'assistant', 1, '{}')",
+    )
+    .bind(message_id_2)
+    .bind(conversation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // High scoring snippet: code + markers ("we decided", "required")
+    let s1 = "snip-high";
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'code', 'we decided the fix is required', 'hash-1')",
+    )
+    .bind(s1)
+    .bind(message_id_2)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Medium scoring snippet: text + marker ("must")
+    let s2 = "snip-mid";
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 1, 'text', 'this must be done', 'hash-2')",
+    )
+    .bind(s2)
+    .bind(message_id_1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Low scoring snippet: plain text, no markers
+    let s3 = "snip-low";
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 2, 'text', 'plain words without any keywords', 'hash-3')",
+    )
+    .bind(s3)
+    .bind(message_id_1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Call GET /v1/projects/:id/snippets/scored
+    let (status, body) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/snippets/scored"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let items = body.as_array().expect("array of scored snippets");
+    assert_eq!(items.len(), 3);
+
+    let score0 = items[0]["score"].as_f64().expect("score float");
+    let score1 = items[1]["score"].as_f64().expect("score float");
+    let score2 = items[2]["score"].as_f64().expect("score float");
+
+    assert!(
+        score0 >= score1 && score1 >= score2,
+        "snippets should be sorted descending by score: {score0}, {score1}, {score2}"
+    );
+    assert_eq!(items[0]["id"], s1);
+    assert_eq!(items[0]["score_details"]["code"], 1.0);
+
+    // Verify 404 for missing project
+    let (not_found_status, not_found_body) = call(
+        &pool,
+        Method::GET,
+        "/v1/projects/nonexistent-project/snippets/scored",
+        None,
+    )
+    .await;
+    assert_eq!(not_found_status, StatusCode::NOT_FOUND);
+    assert_eq!(not_found_body["error"], "not_found");
+}
