@@ -77,6 +77,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scored snippets HTTP API: `GET /v1/projects/:id/snippets/scored`, returning
   each candidate with its final score and per-signal breakdown, sorted by
   descending score
+- Score UI: each snippet shows a score badge rounded to two decimals, with a
+  breakdown panel (Code, Markers, Entities, Position) behind an info button.
+  Snippets in the high band start checked, and an "Add N to Cart" button
+  commits the selection, so a default check is a proposal rather than a
+  decision
+- Adaptive score bands: the green and amber thresholds scale with the best
+  score in the list, capped by the nominal 0.70 and 0.40 edges. A fixed
+  threshold would paint every real snippet grey, because the reachable
+  scores depend on the brief and the conversation rather than on the
+  quality of the snippet alone
+- `ScoredSnippet` and `ScoreDetails` types and the `listScoredSnippets` API
+  client method
+- The cart sidebar shows the score of each item, matched back to its snippet
+  through `snippet_id`, using the same bands as the snippet list
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
