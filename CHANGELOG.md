@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CartSidebar UI component: displays cart items with remove buttons
 - Split-view layout: snippet browser on left, cart sidebar on right
 - Cart flow E2E test: create project, add to cart, remove from cart
+- Heuristic scoring engine and entity extraction (`crates/core/src/scorer.rs`):
+  evaluates snippets with signals S2-S7 (code, decision markers, project
+  entities, novelty stub, position within conversation turns, and source
+  provenance), composed through a sigmoid normalised by the reachable weight
+  total so a strong snippet can clear the 0.70 auto-select threshold
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
