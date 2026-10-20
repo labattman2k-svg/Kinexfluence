@@ -91,6 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client method
 - The cart sidebar shows the score of each item, matched back to its snippet
   through `snippet_id`, using the same bands as the snippet list
+- A shared `ScoreBadge` component, so the snippet list and the cart sidebar
+  render the same badge: the number, the band colour, and a glyph that carries
+  the band for anyone who cannot see the colour
+- Scoring E2E test (`ui/tests/e2e/scoring-flow.spec.ts`): reads a score, opens
+  the breakdown, checks the auto-selection, and bulk-adds to the cart. The
+  project brief is derived from the fixture's own snippets, so the entity
+  match holds whatever the fixture contains
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)

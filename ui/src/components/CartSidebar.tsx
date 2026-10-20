@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   getCart,
   removeFromCart,
@@ -6,7 +6,7 @@ import {
   type CartItem,
   type ScoredSnippet,
 } from "../lib/api";
-import { bandFor, scoreBands, BAND_GLYPH, BAND_LABEL } from "./SnippetList";
+import { bandFor, scoreBands, ScoreBadge, type ScoreBand } from "./SnippetList";
 
 interface Props {
   projectId: string;
@@ -16,9 +16,15 @@ interface Props {
   onBack: () => void;
 }
 
+/** A cart item's score, matched back to the snippet it came from. */
+interface ScoreEntry {
+  score: number;
+  band: ScoreBand;
+}
+
 export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack }: Props) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [scored, setScored] = useState<ScoredSnippet[]>([]);
+  const [scores, setScores] = useState<Map<string, ScoreEntry>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,10 +32,23 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
     let cancelled = false;
     setLoading(true);
 
-    getCart(projectId)
-      .then((items) => {
+    // The cart API does not carry a score, and a cart item is a materialised
+    // copy of a snippet rather than the snippet itself, so the score has to be
+    // matched back through `snippet_id`. A cart item with no snippet behind
+    // it -- an item made by hand rather than from the browser -- simply has
+    // no badge.
+    const scored = listScoredSnippets(projectId).catch((cause: Error) => {
+      // A missing score is not worth an error banner: the cart is still
+      // perfectly usable without the badges.
+      console.error("Failed to fetch scored snippets for the cart:", cause);
+      return [] as ScoredSnippet[];
+    });
+
+    Promise.all([getCart(projectId), scored])
+      .then(([items, found]) => {
         if (cancelled) return;
         setCartItems(items);
+        setScores(scoresBySnippet(found));
         setError(null);
       })
       .catch((cause: Error) => {
@@ -43,41 +62,6 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
       cancelled = true;
     };
   }, [projectId, cartReloadToken]);
-
-  /**
-   * The scored snippets, for the badges beside each cart item.
-   *
-   * The cart API does not carry a score, and a cart item is a materialised
-   * copy of a snippet rather than the snippet itself, so the score has to be
-   * matched back through `snippet_id`. A cart item with no snippet behind it
-   * -- an item made by hand rather than from the browser -- simply has no
-   * badge.
-   */
-  useEffect(() => {
-    let cancelled = false;
-
-    listScoredSnippets(projectId)
-      .then((found) => {
-        if (!cancelled) setScored(found);
-      })
-      .catch((cause: Error) => {
-        // A missing score is not worth an error banner: the cart is still
-        // perfectly usable without the badges.
-        console.error("Failed to fetch scored snippets for the cart:", cause);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  const bands = useMemo(() => scoreBands(scored), [scored]);
-
-  const scoreBySnippetId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const snippet of scored) map.set(snippet.id, snippet.score);
-    return map;
-  }, [scored]);
 
   const handleRemove = async (itemId: string) => {
     try {
@@ -115,49 +99,46 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
 
       {!loading && cartItems.length > 0 && (
         <ul className="kfx-list">
-          {cartItems.map((item) => {
-            const score =
-              item.snippet_id !== null
-                ? scoreBySnippetId.get(item.snippet_id)
-                : undefined;
-            const band = score !== undefined ? bandFor(score, bands) : null;
-
-            return (
-              <li key={item.item_id} className="kfx-list-item">
-                <div className="kfx-cart-item-content">
-                  <div className="kfx-snippet-head">
-                    <div className="kfx-snippet-kind">{item.kind}</div>
-                    {band !== null && score !== undefined && (
-                      <span
-                        className={`kfx-score-badge kfx-score-${band}`}
-                        data-testid="cart-score-badge"
-                      >
-                        <span className="kfx-score-glyph" aria-hidden="true">
-                          {BAND_GLYPH[band]}
-                        </span>
-                        {score.toFixed(2)}
-                        <span className="kfx-sr-only">{` — ${BAND_LABEL[band]}`}</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="kfx-snippet-text">
-                    {item.text.slice(0, 100)}
-                    {item.text.length > 100 && "…"}
-                  </div>
+          {cartItems.map((item) => (
+            <li key={item.item_id} className="kfx-list-item">
+              <div className="kfx-cart-item-content">
+                <div className="kfx-snippet-head">
+                  <div className="kfx-snippet-kind">{item.kind}</div>
+                  <CartScoreBadge entry={scores.get(item.snippet_id ?? "")} />
                 </div>
-                <button
-                  type="button"
-                  className="kfx-remove-btn"
-                  onClick={() => handleRemove(item.item_id)}
-                  aria-label="Remove from cart"
-                >
-                  ×
-                </button>
-              </li>
-            );
-          })}
+                <div className="kfx-snippet-text">
+                  {item.text.slice(0, 100)}
+                  {item.text.length > 100 && "…"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="kfx-remove-btn"
+                onClick={() => handleRemove(item.item_id)}
+                aria-label="Remove from cart"
+              >
+                ×
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </aside>
   );
+}
+
+/** The score badge for a cart item, if it has one. */
+function CartScoreBadge({ entry }: { entry: ScoreEntry | undefined }) {
+  if (!entry) return null;
+  return <ScoreBadge score={entry.score} band={entry.band} testId="cart-score-badge" />;
+}
+
+/** Map each snippet to its score and band, using the list's own bands. */
+function scoresBySnippet(scored: ScoredSnippet[]): Map<string, ScoreEntry> {
+  const bands = scoreBands(scored);
+  const map = new Map<string, ScoreEntry>();
+  for (const snippet of scored) {
+    map.set(snippet.id, { score: snippet.score, band: bandFor(snippet.score, bands) });
+  }
+  return map;
 }

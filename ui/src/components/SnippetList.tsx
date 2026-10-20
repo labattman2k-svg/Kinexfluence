@@ -14,39 +14,31 @@ interface Props {
 }
 
 /**
- * The nominal band edges.
+ * The nominal band edges: 0.70 is a strong candidate and is auto-checked,
+ * 0.40 is worth a look, and below that is not.
  *
- * A snippet at 0.70 or above is a strong candidate and gets auto-checked; one
- * at 0.40 is worth a look; one below that is not.
+ * The score they are applied to is relative, not absolute. It is a sigmoid
+ * over six weighted signals, and three of them -- code, decision markers,
+ * and project entities -- depend on what the brief says and what the
+ * conversation contains. A project whose snippets hit none of those cannot
+ * score above 0.26 however good it is, so painting green at 0.70 would paint
+ * nothing green and auto-select nothing. Measured against the shipped
+ * fixture, the whole distribution sits between 0.06 and 0.25.
+ *
+ * So the bands scale with the list -- green is the top slice of what is on
+ * screen, amber the slice below -- and the nominal edges cap both. When a
+ * project's scores do approach the practical maximum, the scaled edges land
+ * on the nominal ones and the two agree.
  */
 const NOMINAL_GREEN = 0.7;
 const NOMINAL_AMBER = 0.4;
-
-/**
- * The share of the best score in the list that counts as green, and as amber.
- *
- * The nominal edges are absolute, but the score they are applied to is not.
- * The score is a sigmoid over six weighted signals, and three of them --
- * code, decision markers, and project entities -- depend on what the brief
- * happens to say and what the conversation happens to contain. A project
- * whose snippets hit none of those signals cannot score above 0.26, however
- * good it is, so painting green at 0.70 would paint nothing green and
- * auto-select nothing. Measured against the shipped fixture, the whole
- * distribution sits between 0.06 and 0.25.
- *
- * So the bands scale with the list: green is the top slice of what is on
- * screen, amber the slice below it, and the nominal edges cap both. When a
- * project's snippets do approach the practical maximum of the curve, the
- * scaled edges land on the nominal ones and the two agree.
- */
 const GREEN_SHARE = 0.85;
 const AMBER_SHARE = 0.45;
 
 /**
- * The floor under both scaled edges.
- *
- * A snippet below this scored nothing the scorer could act on, so it stays
- * weak rather than having the bands stretched over nothing to distinguish.
+ * The floor under both scaled edges: a snippet below this scored nothing the
+ * scorer could act on, so it stays weak rather than having the bands
+ * stretched over nothing to distinguish.
  */
 const MIN_SIGNAL = 0.1;
 
@@ -96,6 +88,41 @@ export const BAND_LABEL: Record<ScoreBand, string> = {
   low: "low relevance",
 };
 
+/** Props for {@link ScoreBadge}. */
+interface ScoreBadgeProps {
+  score: number;
+  band: ScoreBand;
+  testId?: string;
+}
+
+/**
+ * The score badge: the number, the band colour, and a glyph.
+ *
+ * The glyph and the screen-reader label are what carry the band for anyone who
+ * cannot see the colour, which the accessibility standard requires -- colour
+ * alone is never the signal.
+ */
+export function ScoreBadge({ score, band, testId }: ScoreBadgeProps) {
+  return (
+    <span className={`kfx-score-badge kfx-score-${band}`} data-testid={testId} data-band={band}>
+      <span className="kfx-score-glyph" aria-hidden="true">
+        {BAND_GLYPH[band]}
+      </span>
+      {score.toFixed(2)}
+      <span className="kfx-sr-only">{` — ${BAND_LABEL[band]}`}</span>
+    </span>
+  );
+}
+
+/** A copy of a set with one member taken out. */
+function without<T>(member: T): (current: Set<T>) => Set<T> {
+  return (current) => {
+    const next = new Set(current);
+    next.delete(member);
+    return next;
+  };
+}
+
 /** The signals shown in the breakdown, in the order a reader wants them. */
 const BREAKDOWN: { key: keyof ScoredSnippet["score_details"]; label: string }[] = [
   { key: "code", label: "Code" },
@@ -107,10 +134,10 @@ const BREAKDOWN: { key: keyof ScoredSnippet["score_details"]; label: string }[] 
 export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props) {
   const [snippets, setSnippets] = useState<ScoredSnippet[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  // `selected` holds the auto-selected high band plus the user's ticks.
-  // `dismissed` holds the snippets the user unticked, and the ones taken out
-  // of the cart. The two are separate so that a later refetch -- the cart
-  // arriving, say -- cannot quietly undo a choice the user made.
+  // `selected` holds the auto-selected high band plus the user's ticks, and
+  // `dismissed` the snippets the user unticked or took out of the cart. The
+  // two are separate so a later refetch -- the cart arriving, say -- cannot
+  // quietly undo a choice the user made.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -120,12 +147,9 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * The cart membership as of the last fetch.
-   *
-   * Kept in a ref rather than state because it is only ever compared against
-   * the next fetch to work out what left the cart -- it is not rendered.
-   */
+  // The cart membership as of the last fetch, in a ref rather than state
+  // because it is only ever compared against the next fetch to work out what
+  // left the cart -- it is not rendered.
   const previousCartIds = useRef<Set<string>>(new Set());
 
   // Fetch scored snippets on mount
@@ -206,26 +230,18 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
     [cartItems]
   );
 
-  /**
-   * Which snippets are ticked.
-   *
-   * The selection, plus whatever is already in the cart, minus the snippets
-   * that were dismissed. The cart is in the union so the box never claims a
-   * snippet is not in the cart when it is.
-   */
+  // Which snippets are ticked: the selection, plus whatever is already in the
+  // cart, minus the dismissed ones. The cart is in the union so the box never
+  // claims a snippet is not in the cart when it is.
   const selectedIds = useMemo(() => {
     const ticked = new Set([...selected, ...inCart]);
     for (const id of dismissed) ticked.delete(id);
     return ticked;
   }, [selected, inCart, dismissed]);
 
-  /**
-   * The selected snippets that are not in the cart yet.
-   *
-   * Adding is idempotent on the server, so re-adding is harmless, but
-   * counting only the new ones keeps the button honest about what it will
-   * change.
-   */
+  // The ticked snippets that are not in the cart yet. Adding is idempotent on
+  // the server, so re-adding is harmless, but counting only the new ones
+  // keeps the button honest about what it will change.
   const pendingIds = useMemo(
     () => [...selectedIds].filter((id) => !inCart.has(id)),
     [selectedIds, inCart]
@@ -235,18 +251,10 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
     const isSelected = selectedIds.has(snippetId);
 
     if (isSelected) {
-      setSelected((current) => {
-        const next = new Set(current);
-        next.delete(snippetId);
-        return next;
-      });
+      setSelected(without(snippetId));
       setDismissed((current) => new Set([...current, snippetId]));
     } else {
-      setDismissed((current) => {
-        const next = new Set(current);
-        next.delete(snippetId);
-        return next;
-      });
+      setDismissed(without(snippetId));
       setSelected((current) => new Set([...current, snippetId]));
     }
   };
@@ -317,17 +325,7 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
                         <span className="kfx-in-cart">in cart</span>
                       )}
                     </div>
-                    <span
-                      className={`kfx-score-badge kfx-score-${band}`}
-                      data-testid="score-badge"
-                      data-band={band}
-                    >
-                      <span className="kfx-score-glyph" aria-hidden="true">
-                        {BAND_GLYPH[band]}
-                      </span>
-                      {snippet.score.toFixed(2)}
-                      <span className="kfx-sr-only">{` — ${BAND_LABEL[band]}`}</span>
-                    </span>
+                    <ScoreBadge score={snippet.score} band={band} testId="score-badge" />
                   </div>
                   <div className="kfx-snippet-text">
                     {snippet.text.slice(0, 200)}

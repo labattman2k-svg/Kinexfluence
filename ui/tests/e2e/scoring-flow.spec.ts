@@ -16,13 +16,13 @@ import { expect, test } from "@playwright/test";
  */
 
 /**
- * The port the core is on, discovered the way the UI discovers it.
+ * The ports the core might be on, in the order to try them.
  *
- * The core binds the first free port from its configured starting point, so
- * the UI cannot assume one. The Playwright config asks for 47899, but the
- * core moves on if that port is taken -- and `reuseExistingServer` means an
- * already-running core of any port could be answering instead. So the test
- * probes the same range the UI does, and takes whichever answers.
+ * The core binds the first free port from its configured starting point. The
+ * Playwright config asks for 47899, but the core moves on if that port is
+ * taken -- and `reuseExistingServer` means an already-running core on any
+ * port could be answering instead. So the test probes the same range the UI
+ * does, and takes whichever answers.
  */
 const CANDIDATE_PORTS = [
   47899, 47821, 47822, 47823, 47824, 47825, 47826, 47827, 47828, 47829, 47830,
@@ -31,7 +31,7 @@ const CANDIDATE_PORTS = [
 /** The port that answered, once one has. */
 let cachedCoreUrl: string | null = null;
 
-/** Find the core, and the snippets it holds. */
+/** Find the core. */
 async function fetchCore(): Promise<string> {
   if (cachedCoreUrl) return cachedCoreUrl;
 
@@ -39,9 +39,8 @@ async function fetchCore(): Promise<string> {
     const url = `http://127.0.0.1:${port}`;
     try {
       const response = await fetch(`${url}/v1/health`);
-      if (!response.ok) continue;
       const body = (await response.json()) as { status?: string };
-      if (body.status === "ok") {
+      if (response.ok && body.status === "ok") {
         cachedCoreUrl = url;
         return url;
       }
@@ -54,6 +53,20 @@ async function fetchCore(): Promise<string> {
 }
 
 /**
+ * The scorer's entity rules, as patterns.
+ *
+ * A Capitalised word of more than three characters, a camelCase word, or a
+ * snake_case word. Any of these, taken from a snippet's own text, is one the
+ * scorer extracts as an entity -- and the snippet therefore contains it, so
+ * the entity match follows.
+ */
+const ENTITY_PATTERNS = [
+  /^[A-Z][A-Za-z0-9]{3,}$/,
+  /^[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*$/,
+  /^(?=[A-Za-z0-9]*[A-Za-z])[a-z0-9]+(_[a-z0-9]+)+$/i,
+];
+
+/**
  * A brief guaranteed to match the snippets, whatever the fixture holds.
  *
  * The project brief is what the scorer extracts its entities from, and an
@@ -62,14 +75,9 @@ async function fetchCore(): Promise<string> {
  * word -- true today, false the moment the fixture changes.
  *
  * So the brief is derived from the snippets themselves: every snippet is
- * searched for a token that the scorer would extract as an entity, and the
- * longest one wins. The rules below are the scorer's own -- snake_case,
- * camelCase, and Capitalised words of more than three characters -- so the
- * token chosen here is one the scorer will extract, and the entity match
- * follows.
- *
- * The token is searched across every snippet rather than just the first,
- * because a snippet need not contain any identifier at all.
+ * searched for a word the scorer would extract as an entity, and the first
+ * one found wins. Every snippet is searched, not just the first, because a
+ * snippet need not contain any identifier at all.
  */
 async function deriveBrief(): Promise<string> {
   const core = await fetchCore();
@@ -83,36 +91,17 @@ async function deriveBrief(): Promise<string> {
     throw new Error("The core holds no snippets, so the fixture import failed.");
   }
 
-  // The scorer's own rules, so the token chosen here is one the scorer
-  // will extract as an entity.
-  const isEntity = (token: string): boolean => {
-    if (token.length <= 3 || !/^[A-Za-z0-9_]+$/.test(token)) return false;
-
-    const isSnake =
-      token.includes("_") &&
-      !token.startsWith("_") &&
-      !token.endsWith("_") &&
-      /[A-Za-z]/.test(token);
-    const isCamel = /^[a-z]/.test(token) && /[A-Z]/.test(token);
-    const isCapitalized = /^[A-Z]/.test(token);
-
-    return isSnake || isCamel || isCapitalized;
-  };
-
-  const entities = snippets
+  const words = snippets
     .flatMap((snippet) => snippet.text.split(/\s+/))
-    .map((token) => token.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, ""))
-    .filter(isEntity)
-    .sort((a, b) => b.length - a.length);
+    .map((word) => word.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, ""));
 
-  if (entities.length > 0) {
-    return entities[0];
-  }
+  const entity = words.find((word) => ENTITY_PATTERNS.some((p) => p.test(word)));
+  if (entity) return entity;
 
   // The fixture holds no identifier at all. Fall back to a word from the
-  // first snippet: the entity match will be empty, but the badges, the
-  // bands, and the auto-check are all still exercised.
-  return snippets[0].text.split(/\s+/).find((word) => word.length > 3) ?? "brief";
+  // first snippet: the entity match will be empty, but the badges, the bands,
+  // and the auto-check are all still exercised.
+  return words.find((word) => word.length > 3) ?? "brief";
 }
 
 test("shows scores, explains them, and bulk-adds the auto-checked snippets", async ({
@@ -145,24 +134,22 @@ test("shows scores, explains them, and bulk-adds the auto-checked snippets", asy
   await expect(badges.first()).toBeVisible();
   expect(await badges.count()).toBeGreaterThan(0);
 
-  // Every score is shown to two decimals, and the bands are not all the same:
-  // the thresholds have to be able to separate snippets.
-  //
+  // Every score is shown to two decimals, with the band glyph beside it.
+  const firstScore = await badges.first().innerText();
+  expect(firstScore).toMatch(/^\s*[▲◆▼]\s*\d\.\d{2}/);
+
   // The middle band is the one that matters here. A snippet reaches it
-  // because of the entity signal, and the entity only scores if the brief
+  // through the entity signal, and the entity only scores if the brief
   // contains a word the snippet also contains. A brief with no match leaves
-  // every snippet either high or low, and the list would still look
-  // plausible -- so asserting only that the bands differ would pass without
-  // the brief matching anything. Asserting the middle band is present is
-  // what proves the brief was derived correctly.
+  // every snippet high or low, and the list still looks plausible -- so
+  // asserting only that the bands differ would pass without the brief
+  // matching anything. The middle band is what proves the brief was derived
+  // correctly.
   const bands = await badges.evaluateAll((nodes) =>
     nodes.map((node) => (node as HTMLElement).dataset.band)
   );
   expect(bands).toContain("medium");
   expect(bands).toContain("low");
-
-  const firstScore = await badges.first().innerText();
-  expect(firstScore).toMatch(/^\s*[▲◆▼]\s*\d\.\d{2}/);
 
   // The strongest snippet is in the high band and starts checked. The score
   // is sorted descending by the server, so the first badge is the best one.
@@ -190,6 +177,27 @@ test("shows scores, explains them, and bulk-adds the auto-checked snippets", asy
   // The breakdown carries the signals, and says which ones are still stubs.
   await expect(panel.locator(".kfx-score-row")).toHaveCount(4);
   await expect(panel).toContainText("stubbed");
+
+  // The numbers shown are the server's own, not the UI's arithmetic. The
+  // first row belongs to the top-scoring snippet, which the server sorts
+  // first, so the panel can be checked against the API directly.
+  const project = (
+    (await (await fetch(`${await fetchCore()}/v1/projects`)).json()) as { id: string; name: string }[]
+  ).find((p) => p.name === projectName);
+  const scored = (await (
+    await fetch(`${await fetchCore()}/v1/projects/${project?.id}/snippets/scored`)
+  ).json()) as { score_details: Record<string, number> }[];
+  const details = scored[0].score_details;
+  for (const [key, label] of [
+    ["code", "Code"],
+    ["marker", "Markers"],
+    ["entity", "Entities"],
+    ["position", "Position"],
+  ]) {
+    await expect(panel.locator(".kfx-score-row", { hasText: label })).toContainText(
+      details[key].toFixed(2)
+    );
+  }
 
   // The default is a proposal, and the user can overrule it. Unticking the
   // high snippet leaves nothing selected, because the weak ones were never
