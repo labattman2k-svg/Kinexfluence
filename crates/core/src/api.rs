@@ -19,6 +19,7 @@ use tracing::error;
 
 use crate::cart::{self, CartError, CartItem};
 use crate::project::{self, CreateProject, Project, ProjectError};
+use crate::scorer::{self, ScoreDetails, ScoredSnippetInput};
 use crate::snippet::Snippet;
 
 /// The body every error response carries.
@@ -158,6 +159,10 @@ pub fn router(pool: SqlitePool) -> Router {
             "/v1/projects/:id_or_slug",
             get(get_project).patch(update_project),
         )
+        .route(
+            "/v1/projects/:id/snippets/scored",
+            get(list_scored_snippets),
+        )
         .route("/v1/snippets", get(list_snippets))
         .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
         .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
@@ -274,4 +279,72 @@ async fn remove_from_cart(
 ) -> Result<StatusCode, ApiError> {
     cart::remove_from_cart(&pool, &project_id, &item_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A snippet scored against a project profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoredSnippetResponse {
+    pub id: String,
+    pub message_id: String,
+    pub block_index: i32,
+    pub segment_index: i32,
+    pub granularity: String,
+    pub kind: String,
+    pub text: String,
+    pub language: Option<String>,
+    pub char_start: Option<i32>,
+    pub char_end: Option<i32>,
+    pub hash: String,
+    pub created_at: String,
+    pub score: f32,
+    pub score_details: ScoreDetails,
+}
+
+async fn list_scored_snippets(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ScoredSnippetResponse>>, ApiError> {
+    let project = resolve(&pool, &id).await?;
+    let profile = scorer::build_profile(&project);
+
+    let snippets = crate::snippet::list_with_metadata(&pool).await?;
+
+    let mut scored: Vec<ScoredSnippetResponse> = snippets
+        .into_iter()
+        .map(|s| {
+            let input = ScoredSnippetInput {
+                kind: s.kind.clone(),
+                text: s.text.clone(),
+                role: s.role.clone(),
+                turn_index: s.turn_index,
+                total_turns: s.total_turns,
+            };
+            let score_details = scorer::score(&profile, &input);
+            ScoredSnippetResponse {
+                id: s.id,
+                message_id: s.message_id,
+                block_index: s.block_index,
+                segment_index: s.segment_index,
+                granularity: s.granularity,
+                kind: s.kind,
+                text: s.text,
+                language: s.language,
+                char_start: s.char_start,
+                char_end: s.char_end,
+                hash: s.hash,
+                created_at: s.created_at,
+                score: score_details.score,
+                score_details,
+            }
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    Ok(Json(scored))
 }
