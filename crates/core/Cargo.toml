@@ -23,6 +23,25 @@ http-body-util.workspace = true
 # The normalizer consumes adapter output, so core depends on adapters and not
 # the other way round. Nothing in adapters depends on core, so this is acyclic.
 kfx-adapters = { path = "../adapters" }
+# Pinned exactly, not with a caret. A pre-release requirement like
+# "2.0.0-rc.10" is satisfied by any later release candidate, so an unpinned
+# "2.0.0-rc.10" resolves to rc.15 -- whose `download-binaries` build script
+# needs a TLS backend the crate does not enable by default, and fails to
+# compile. The pin keeps the build reproducible.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = [
+    "std",
+    "ndarray",
+    "download-binaries",
+    "copy-dylibs",
+] }
+# The tokenizer for the embedding model, loaded from the model's own
+# tokenizer.json rather than reimplemented.
+#
+# `onig` is not optional in practice: the crate's `utils` module imports it
+# unconditionally, so a build without the feature fails to compile. The
+# default `esaxx_fast` feature is left off -- it is a C++ unigram segmenter
+# the model's WordPiece tokenizer does not use.
+tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 
 [dev-dependencies]
 tempfile = "3"

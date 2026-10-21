@@ -22,3 +22,7 @@ blob-report/
 .playwright/
 
 takeout-*
+
+# The embedding model, fetched by scripts/download-model.sh. It is 90 MB and
+# is not committed; the fetch is pinned to a revision and a checksum.
+models/

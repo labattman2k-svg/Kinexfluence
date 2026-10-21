@@ -98,6 +98,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the breakdown, checks the auto-selection, and bulk-adds to the cart. The
   project brief is derived from the fixture's own snippets, so the entity
   match holds whatever the fixture contains
+- ONNX embedder (`crates/core/src/embeddings.rs`): `all-MiniLM-L6-v2` loaded
+  through ONNX Runtime, with the model's own tokenizer. The graph emits one
+  vector per token; the mean pooling over the non-padding tokens and the
+  L2 normalisation are applied in Rust, which is what the
+  sentence-transformers wrapper does
+- `scripts/download-model.sh`, which fetches the model and its tokenizer into
+  `models/` at a pinned revision and verifies both against a SHA-256. The
+  model is not committed: it is 90 MB, and the core builds a different ONNX
+  Runtime for every platform it targets
+- The model and its tokenizer are checksum-verified again when the embedder
+  loads them, as ADR 0002 promises. A model with the wrong bytes still loads
+  and still returns 384 numbers, so without this check a substituted or
+  corrupted model would quietly move every semantic score in the product
+- S1, the semantic signal, in the scorer: the cosine similarity between a
+  snippet's embedding and its project's, rescaled into [0, 1]. It carries the
+  heaviest weight of the seven (0.35), and a missing embedding leaves it
+  neutral at 0.5 so a machine without the model scores the same as one where
+  the model simply had nothing to say
+- The server holds the embedder and `GET /v1/projects/:id/snippets/scored`
+  uses it, embedding the project brief and each snippet on the fly. A model
+  that is not installed leaves the server working, with S1 neutral
+- CI fetches the embedding model before the tests and the end-to-end run, so
+  the ONNX tests execute rather than skipping themselves. The browser test
+  therefore sees the same scores a developer does
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
