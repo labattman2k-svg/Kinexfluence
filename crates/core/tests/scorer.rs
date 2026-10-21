@@ -3,7 +3,8 @@
 use chrono::Utc;
 use kfx_core::project::Project;
 use kfx_core::scorer::{
-    build_profile, compose, extract_entities, score, ProjectProfile, ScoredSnippetInput,
+    build_profile, compose, extract_entities, score, score_with_floor, ProjectProfile,
+    ScoredSnippetInput,
 };
 
 fn blank_profile() -> ProjectProfile {
@@ -493,5 +494,110 @@ fn s1_stays_inside_its_range() {
         (0.0..=1.0).contains(&opposed.score),
         "and the score must stay in [0, 1], got {}",
         opposed.score
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The probe floor
+//
+// A probe is the user telling the system that a snippet matters and the
+// heuristic was wrong. The floor is what makes that mean something.
+//
+// The floor is applied to the final score, not to any signal, and the
+// signals are left alone. That is the point of the whole mechanism: the
+// breakdown has to keep saying what the heuristic said, so a reader can see
+// that the ranking was overruled by the user and not by the scoring.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_probe_floor_lifts_a_low_score() {
+    let profile = profile_with(None, Vec::new());
+    let input = ScoredSnippetInput::new("text", "plain words with nothing in them");
+
+    let unfloored = score(&profile, &input, None);
+    let floored = score_with_floor(&profile, &input, None, Some(0.90));
+
+    assert!(
+        floored.score >= 0.90,
+        "a settled probe should put the snippet at 0.90 or above, got {}",
+        floored.score
+    );
+    assert!(
+        floored.score > unfloored.score,
+        "the floor should have lifted the score: {} against {}",
+        floored.score,
+        unfloored.score
+    );
+    assert_eq!(floored.probe_floor, Some(0.90));
+}
+
+#[test]
+fn a_probe_floor_never_lowers_a_high_score() {
+    // A snippet the heuristic already loved does not need the floor, and
+    // must not be dragged down to it.
+    let profile = profile_with(
+        Some(vec![1.0, 0.0, 0.0]),
+        vec!["alpha".to_string(), "beta".to_string()],
+    );
+    let input = best_input();
+
+    let unfloored = score(&profile, &input, Some(&[1.0, 0.0, 0.0]));
+    let floored = score_with_floor(&profile, &input, Some(&[1.0, 0.0, 0.0]), Some(0.90));
+
+    assert!(
+        floored.score >= unfloored.score,
+        "the floor should not lower a score the heuristic already gave: \
+         {} against {}",
+        floored.score,
+        unfloored.score
+    );
+}
+
+#[test]
+fn a_probe_floor_leaves_the_signals_alone() {
+    // The signals are the heuristic's testimony. A floor is not evidence, so
+    // it must not be folded into one: the breakdown has to keep saying what
+    // the scorer said, and report the floor beside it.
+    let profile = profile_with(None, Vec::new());
+    let input = ScoredSnippetInput::new("text", "plain words with nothing in them");
+
+    let unfloored = score(&profile, &input, None);
+    let floored = score_with_floor(&profile, &input, None, Some(0.90));
+
+    assert_eq!(floored.semantic, unfloored.semantic);
+    assert_eq!(floored.code, unfloored.code);
+    assert_eq!(floored.marker, unfloored.marker);
+    assert_eq!(floored.entity, unfloored.entity);
+    assert_eq!(floored.novelty, unfloored.novelty);
+    assert_eq!(floored.position, unfloored.position);
+    assert_eq!(floored.provenance, unfloored.provenance);
+}
+
+#[test]
+fn a_snippet_with_no_probe_has_no_floor() {
+    let profile = profile_with(None, Vec::new());
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    let scored = score(&profile, &input, None);
+
+    assert_eq!(
+        scored.probe_floor, None,
+        "the ordinary case is a snippet nobody has probed"
+    );
+}
+
+#[test]
+fn a_probe_floor_keeps_the_score_in_range() {
+    let profile = profile_with(None, Vec::new());
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    // A floor above 1.0 would be nonsense, and a floor below 0 would be
+    // worse. The floor is a bound on the score, not a replacement for it.
+    let floored = score_with_floor(&profile, &input, None, Some(1.0));
+
+    assert!(
+        (0.0..=1.0).contains(&floored.score),
+        "the score must stay in [0, 1], got {}",
+        floored.score
     );
 }
