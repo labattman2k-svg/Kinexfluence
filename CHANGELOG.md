@@ -122,6 +122,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI fetches the embedding model before the tests and the end-to-end run, so
   the ONNX tests execute rather than skipping themselves. The browser test
   therefore sees the same scores a developer does
+- The probe engine (`crates/core/src/probe.rs`): a probe is a question put to
+  the user about one item, together with the answer that came back. A settled
+  probe puts a relevance floor of 0.90 under the item and a provisional one
+  0.70; an unanswered probe floors nowhere, because a question the user has
+  not answered is not evidence. Submitting a probe creates the item it is
+  about, marks it `user_forced` in `item_project`, and writes an `event_log`
+  row for both the probe and the forced item
+- The probe floor is applied to the finished score, not to any of the seven
+  signals. The breakdown keeps saying what the heuristic said and reports
+  the floor beside it, so a reader can see that the ranking was overruled by
+  the user and not by the scorer. The floor lifts a score and never lowers
+  one, both in the score the API computes and in the relevance stored on
+  `item_project`
+- Probe HTTP API: `POST /v1/probes` creates a probe and returns it with the
+  floor it bought, `GET /v1/probes/pending` lists the probes that are not
+  yet settled, and `PATCH /v1/probes/:id` records the answer, which is what
+  actually moves the item. A status the engine does not know is refused
+  rather than stored, because a typo in `probe.status` would otherwise make
+  the floor silently never apply
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
