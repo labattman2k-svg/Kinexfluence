@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -27,10 +27,31 @@ pub enum CartError {
 
 /// Get or create an item from a snippet.
 async fn get_or_create_item(pool: &SqlitePool, snippet_id: &str) -> Result<String, CartError> {
+    let mut tx = pool.begin().await?;
+    let item_id = item_for_snippet(&mut tx, snippet_id).await?;
+    tx.commit().await?;
+    Ok(item_id)
+}
+
+/// Get or create the item that holds a snippet's content.
+///
+/// An item is a snippet's materialisation: the cart and the probe engine
+/// both need one, and there must be exactly one per snippet or a snippet
+/// could be in two places at once. So the rule lives here and both callers
+/// come to it.
+///
+/// The item is created whether or not anyone has asked for it yet. A probe
+/// about a snippet that has never been in a cart is a probe about something
+/// the user wants, and refusing it because the item does not exist would
+/// refuse the exact case the mechanism exists for.
+pub async fn item_for_snippet(
+    tx: &mut Transaction<'_, Sqlite>,
+    snippet_id: &str,
+) -> Result<String, CartError> {
     // Try to find existing item
     let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM item WHERE snippet_id = ?")
         .bind(snippet_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut **tx)
         .await?;
 
     if let Some((item_id,)) = existing {
@@ -41,7 +62,7 @@ async fn get_or_create_item(pool: &SqlitePool, snippet_id: &str) -> Result<Strin
     let snippet: Option<(String, String, String, Option<String>)> =
         sqlx::query_as("SELECT id, kind, text, language FROM snippet WHERE id = ?")
             .bind(snippet_id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut **tx)
             .await?;
 
     // The snippet's own id is what the item points at, so it is not needed
@@ -64,7 +85,7 @@ async fn get_or_create_item(pool: &SqlitePool, snippet_id: &str) -> Result<Strin
     .bind(&kind)
     .bind(&text)
     .bind(&metadata_json)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
 
     Ok(item_id)
