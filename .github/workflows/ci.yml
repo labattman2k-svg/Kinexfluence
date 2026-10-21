@@ -29,6 +29,13 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
+      # The embedding tests need the real model, which is not committed. They
+      # skip themselves when it is absent, and a skipped test is a hole in the
+      # coverage, so the model is fetched before the tests run. The fetch is
+      # pinned to a revision and a checksum, so it is the same model the
+      # developers test against.
+      - name: Fetch the embedding model
+        run: bash scripts/download-model.sh
       - name: test
         run: cargo test --workspace
       - name: cargo deny
@@ -70,6 +77,11 @@ jobs:
       - name: Install Chromium
         working-directory: ui
         run: npx playwright install --with-deps chromium
+      # The scored-snippets endpoint uses the embedding model, so the browser
+      # test runs against the same scores a developer sees rather than the
+      # neutral S1 of a machine without the model.
+      - name: Fetch the embedding model
+        run: bash scripts/download-model.sh
       # Pre-build so Playwright's webServer timeout measures the test, not a
       # cold compile.
       - name: Build the CLI the E2E server runs
