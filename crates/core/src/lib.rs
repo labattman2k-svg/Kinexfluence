@@ -2,6 +2,7 @@
 pub mod api;
 pub mod cart;
 pub mod config;
+pub mod embeddings;
 pub mod error;
 pub mod normalizer;
 pub mod project;
