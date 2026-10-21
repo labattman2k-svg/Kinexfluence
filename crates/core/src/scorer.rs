@@ -117,6 +117,13 @@ pub struct ScoreDetails {
     pub position: f32,
     /// S7 source provenance signal (stubbed to 0.5).
     pub provenance: f32,
+    /// The relevance floor a probe puts under this snippet, if any.
+    ///
+    /// `None` when no probe has answered for this snippet, which is the
+    /// ordinary case. The floor is reported rather than folded into the
+    /// signals, so a reader can see that the ranking was overruled by the
+    /// user and not by the heuristic.
+    pub probe_floor: Option<f32>,
 }
 
 /// Project text context and extracted entities used for scoring.
@@ -260,10 +267,33 @@ pub fn build_profile(project: &Project, embedder: Option<&Embedder>) -> ProjectP
 /// embedding -- S1 falls back to its neutral value, so a machine with no model
 /// installed scores the same way as one where the model simply found nothing
 /// to say.
+///
+/// A probe floor is not a parameter here. Almost nothing has one, and the
+/// floor is applied to the finished score rather than to any signal, so
+/// [`score_with_floor`] is the entry point for a snippet the user has
+/// answered a probe about.
 pub fn score(
     profile: &ProjectProfile,
     snippet: &ScoredSnippetInput,
     snippet_embedding: Option<&[f32]>,
+) -> ScoreDetails {
+    score_with_floor(profile, snippet, snippet_embedding, None)
+}
+
+/// Score a snippet, and put a probe floor under the result.
+///
+/// The floor is applied to the final score, not to any signal. A floor is not
+/// evidence: the seven signals still say what they said, and the floor is
+/// reported beside them. Folding it into a signal would make the breakdown
+/// lie about why the snippet ranked where it did.
+///
+/// The floor lifts a score and never lowers one: a snippet the heuristic
+/// already loved keeps the score it had.
+pub fn score_with_floor(
+    profile: &ProjectProfile,
+    snippet: &ScoredSnippetInput,
+    snippet_embedding: Option<&[f32]>,
+    probe_floor: Option<f32>,
 ) -> ScoreDetails {
     // S1: Semantic similarity
     let semantic = match (profile.embedding.as_deref(), snippet_embedding) {
@@ -325,10 +355,20 @@ pub fn score(
     // S7: Provenance (stubbed to 0.5)
     let provenance = 0.5_f32;
 
+    let composed = compose(
+        semantic, code, marker, entity, novelty, position, provenance,
+    );
+
+    // The probe floor lifts the score but never lowers it: a snippet the
+    // heuristic already loved stays as it was, and one the heuristic
+    // dismissed is lifted to what the user said it was worth.
+    let score = match probe_floor {
+        Some(floor) => composed.max(floor),
+        None => composed,
+    };
+
     ScoreDetails {
-        score: compose(
-            semantic, code, marker, entity, novelty, position, provenance,
-        ),
+        score,
         semantic,
         code,
         marker,
@@ -336,6 +376,7 @@ pub fn score(
         novelty,
         position,
         provenance,
+        probe_floor,
     }
 }
 

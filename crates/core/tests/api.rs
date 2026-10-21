@@ -633,3 +633,235 @@ async fn list_scored_snippets_returns_sorted_by_score(pool: SqlitePool) {
     assert_eq!(not_found_status, StatusCode::NOT_FOUND);
     assert_eq!(not_found_body["error"], "not_found");
 }
+
+// ---------------------------------------------------------------------------
+// probes
+// ---------------------------------------------------------------------------
+
+/// Create a snippet and return its id.
+async fn make_snippet(pool: &SqlitePool, text: &str) -> String {
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO conversation (id, source_id, title) VALUES ('conv-1', 'source-1', 'T')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES ('msg-1', 'conv-1', 'user', '{}')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, 'msg-1', 0, 'text', ?, ?)",
+    )
+    .bind(&snippet_id)
+    .bind(text)
+    .bind(format!("hash-{snippet_id}"))
+    .execute(pool)
+    .await
+    .unwrap();
+    snippet_id
+}
+
+/// The body of a probe submission against a snippet.
+fn probe_body(snippet_id: &str, project_id: &str, status: Option<&str>) -> Value {
+    let mut body = json!({
+        "snippet_id": snippet_id,
+        "project_id": project_id,
+        "trigger": "user_force_check",
+        "questions": ["What was this for?"],
+        "answers": ["The storage decision"],
+        "intent": "records a decision",
+    });
+    if let Some(status) = status {
+        body["status"] = json!(status);
+    }
+    body
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn submit_probe_returns_201_and_the_probe(pool: SqlitePool) {
+    let project = create(&pool, "Probe Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = make_snippet(&pool, "a snippet worth keeping").await;
+
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body(&snippet_id, project_id, Some("settled"))),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "the probe should be created: {body}"
+    );
+    assert!(
+        body["id"].is_string(),
+        "the probe should have an id: {body}"
+    );
+    assert_eq!(body["trigger"], "user_force_check");
+    assert_eq!(body["status"], "settled");
+    assert_eq!(
+        body["questions"][0], "What was this for?",
+        "the questions should be rendered as an array, not as the text they \
+         are stored as: {body}"
+    );
+    assert_eq!(body["answers"][0], "The storage decision");
+    assert_eq!(
+        body["floor"], 0.90,
+        "the probe should say what floor it bought: {body}"
+    );
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn submit_probe_rejects_a_bad_request(pool: SqlitePool) {
+    let project = create(&pool, "Probe Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = make_snippet(&pool, "a snippet worth keeping").await;
+
+    // A status the module does not know.
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body(&snippet_id, project_id, Some("probably fine"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "invalid_input");
+
+    // A snippet that is not there.
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body("no-such-snippet", project_id, Some("settled"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found");
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_pending_probes_returns_the_unanswered_ones(pool: SqlitePool) {
+    let project = create(&pool, "Probe Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = make_snippet(&pool, "a snippet worth keeping").await;
+
+    // Raised, unanswered.
+    let (status, _) = call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body(&snippet_id, project_id, None)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // And settled, which is done.
+    call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body(&snippet_id, project_id, Some("settled"))),
+    )
+    .await;
+
+    let (status, body) = call(&pool, Method::GET, "/v1/probes/pending", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let list = body.as_array().expect("array");
+    assert_eq!(
+        list.len(),
+        1,
+        "a settled probe is finished and should not be pending: {body}"
+    );
+    assert!(
+        list[0]["status"].is_null(),
+        "an unanswered probe has no status: {body}"
+    );
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn answer_probe_settles_it_and_applies_the_floor(pool: SqlitePool) {
+    let project = create(&pool, "Probe Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = make_snippet(&pool, "a snippet worth keeping").await;
+
+    let (_, raised) = call(
+        &pool,
+        Method::POST,
+        "/v1/probes",
+        Some(probe_body(&snippet_id, project_id, None)),
+    )
+    .await;
+    let probe_id = raised["id"].as_str().expect("id").to_string();
+
+    let (status, body) = call(
+        &pool,
+        Method::PATCH,
+        &format!("/v1/probes/{probe_id}"),
+        Some(json!({
+            "answers": ["The storage decision"],
+            "status": "settled",
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the probe should be answerable: {body}"
+    );
+    assert_eq!(body["status"], "settled");
+    assert_eq!(body["floor"], 0.90);
+    assert_eq!(body["answers"][0], "The storage decision");
+
+    // And the floor reaches the score the user sees.
+    let (_, scored) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/snippets/scored"),
+        None,
+    )
+    .await;
+    let items = scored.as_array().expect("array");
+    let probed = items
+        .iter()
+        .find(|item| item["id"] == snippet_id)
+        .expect("the snippet should be scored");
+
+    assert_eq!(
+        probed["score_details"]["probe_floor"], 0.90,
+        "the score should say it was floored: {probed}"
+    );
+    let score = probed["score"].as_f64().expect("a score");
+    assert!(
+        score >= 0.90,
+        "a settled probe should put the snippet at 0.90 or above, got {score}"
+    );
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn answer_probe_rejects_a_missing_probe(pool: SqlitePool) {
+    let (status, body) = call(
+        &pool,
+        Method::PATCH,
+        "/v1/probes/no-such-probe",
+        Some(json!({ "status": "settled" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found");
+}
