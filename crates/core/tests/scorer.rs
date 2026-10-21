@@ -1,4 +1,4 @@
-//! Unit tests for heuristic scoring (S2-S7) and entity extraction.
+//! Unit tests for heuristic scoring (S1-S7) and entity extraction.
 
 use chrono::Utc;
 use kfx_core::project::Project;
@@ -28,6 +28,30 @@ fn dummy_project(name: &str, description: Option<&str>, brief: Option<&str>) -> 
         weights_json: None,
         created_at: now,
         updated_at: now,
+    }
+}
+
+/// A profile with the given embedding and the given entities.
+fn profile_with(embedding: Option<Vec<f32>>, entities: Vec<String>) -> ProjectProfile {
+    ProjectProfile {
+        name: "Test".to_string(),
+        description: None,
+        brief: None,
+        embedding,
+        entities,
+    }
+}
+
+/// A snippet that matches every signal it can: it is code, it carries the
+/// decision markers, it names the project's entities, and it sits at the end
+/// of the conversation.
+fn best_input() -> ScoredSnippetInput {
+    ScoredSnippetInput {
+        kind: "code".to_string(),
+        text: "we decided the fix is required for root cause in alpha beta".to_string(),
+        role: Some("assistant".to_string()),
+        turn_index: Some(9),
+        total_turns: Some(10),
     }
 }
 
@@ -170,20 +194,8 @@ fn sigmoid_bounds() {
     );
 
     // Maximum possible signals
-    let max_profile = ProjectProfile {
-        name: "Test".to_string(),
-        description: None,
-        brief: None,
-        embedding: None,
-        entities: vec!["alpha".to_string(), "beta".to_string()],
-    };
-    let max_input = ScoredSnippetInput {
-        kind: "code".to_string(),
-        text: "we decided the fix is required for root cause in alpha beta".to_string(),
-        role: Some("assistant".to_string()),
-        turn_index: Some(9),
-        total_turns: Some(10),
-    };
+    let max_profile = profile_with(None, vec!["alpha".to_string(), "beta".to_string()]);
+    let max_input = best_input();
     let max_score = score(&max_profile, &max_input, None);
     assert!(
         max_score.score > 0.0 && max_score.score < 1.0,
@@ -271,20 +283,11 @@ fn best_realisable_snippet_clears_the_auto_select_threshold() {
     // With S1 live, the best realisable snippet needs a matching embedding:
     // S1 carries the heaviest weight of the seven, so a snippet that means
     // what the project means is the one that reaches the top of the scale.
-    let profile = ProjectProfile {
-        name: "Test".to_string(),
-        description: None,
-        brief: None,
-        embedding: Some(vec![1.0, 0.0, 0.0]),
-        entities: vec!["alpha".to_string(), "beta".to_string()],
-    };
-    let input = ScoredSnippetInput {
-        kind: "code".to_string(),
-        text: "we decided the fix is required for root cause in alpha beta".to_string(),
-        role: Some("assistant".to_string()),
-        turn_index: Some(9),
-        total_turns: Some(10),
-    };
+    let profile = profile_with(
+        Some(vec![1.0, 0.0, 0.0]),
+        vec!["alpha".to_string(), "beta".to_string()],
+    );
+    let input = best_input();
 
     let scored = score(&profile, &input, Some(&[1.0, 0.0, 0.0]));
 
@@ -303,11 +306,44 @@ fn best_realisable_snippet_clears_the_auto_select_threshold() {
     );
 }
 
+/// Without the model, the best a snippet can do is just short of the
+/// threshold.
+///
+/// S1 carries 0.35 of the 1.00 total, so a machine with no model leaves that
+/// share at the neutral 0.5 and tops out at 0.696 -- just under the 0.70
+/// auto-select threshold, where before S1 the same snippet scored 0.832.
+///
+/// The effect is intended: a semantic signal is what separates a snippet
+/// that is about the project from one that merely shares its vocabulary, and
+/// a machine that cannot measure that should not claim its best snippets are
+/// auto-selectable. The test pins the number so a change to the weights or
+/// to the fallback cannot move it unnoticed.
+#[test]
+fn without_the_model_the_best_snippet_falls_just_short_of_the_threshold() {
+    let profile = profile_with(None, vec!["alpha".to_string(), "beta".to_string()]);
+    let input = best_input();
+
+    let scored = score(&profile, &input, None);
+
+    assert_eq!(scored.semantic, 0.5, "a missing embedding stays neutral");
+    assert!(
+        scored.score < 0.70,
+        "without the model the best snippet stays under the threshold, got {}",
+        scored.score
+    );
+    assert!(
+        scored.score > 0.65,
+        "but it stays close to it, so the difference is the model's and not a \
+         collapse of the scale, got {}",
+        scored.score
+    );
+}
+
 /// A middling snippet sits near a third. This is the point a user reads as
 /// "maybe", so it must not drift into either "yes" or "no".
 ///
 /// Driven through `compose` rather than `score`: `code` is binary and two
-/// signals are stubbed, so no real input has all six at 0.5.
+/// signals are stubbed, so no real input has all seven at 0.5.
 #[test]
 fn neutral_signals_score_around_a_third() {
     let neutral = compose(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
@@ -345,4 +381,117 @@ fn composition_is_monotonic() {
         );
         previous = scored;
     }
+}
+
+// ---------------------------------------------------------------------------
+// S1: the semantic signal
+//
+// S1 is the heaviest weight in the scorer, so a change to how it is computed
+// moves every score in the product. These tests pin the three things that
+// matter: that it is in the composition at all, that a missing embedding
+// leaves it neutral, and that a more similar snippet scores higher.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_missing_embedding_leaves_s1_neutral() {
+    let profile = blank_profile();
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    // Neither side embedded.
+    assert_eq!(score(&profile, &input, None).semantic, 0.5);
+
+    // The profile embedded, the snippet did not.
+    let embedded_profile = profile_with(Some(vec![1.0, 0.0, 0.0]), Vec::new());
+    assert_eq!(score(&embedded_profile, &input, None).semantic, 0.5);
+
+    // The snippet embedded, the profile did not.
+    assert_eq!(
+        score(&profile, &input, Some(&[1.0, 0.0, 0.0])).semantic,
+        0.5
+    );
+}
+
+#[test]
+fn identical_embeddings_give_a_full_s1() {
+    let vector = vec![0.6, 0.8, 0.0];
+    let profile = profile_with(Some(vector.clone()), Vec::new());
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    let scored = score(&profile, &input, Some(&vector));
+
+    assert!(
+        (scored.semantic - 1.0).abs() < 1e-5,
+        "a snippet that embeds to the same vector is maximally similar, got {}",
+        scored.semantic
+    );
+}
+
+#[test]
+fn a_more_similar_snippet_scores_higher() {
+    // Two unit vectors at 60 degrees to each other: the first is closer to the
+    // profile than the second.
+    let profile_vector = vec![1.0, 0.0, 0.0];
+    let closer = vec![0.9, 0.436, 0.0];
+    let further = vec![0.5, 0.866, 0.0];
+
+    let profile = profile_with(Some(profile_vector), Vec::new());
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    let near = score(&profile, &input, Some(&closer));
+    let far = score(&profile, &input, Some(&further));
+
+    assert!(
+        near.semantic > far.semantic,
+        "the closer snippet should score higher: {} against {}",
+        near.semantic,
+        far.semantic
+    );
+    assert!(
+        near.score > far.score,
+        "and the difference should reach the final score: {} against {}",
+        near.score,
+        far.score
+    );
+}
+
+#[test]
+fn s1_is_in_the_composition() {
+    // The same snippet, once against a profile it matches and once against
+    // one it does not. Everything else is held equal, so any difference in
+    // the final score is S1's doing.
+    let input = ScoredSnippetInput::new("text", "a snippet about databases");
+    let profile = profile_with(Some(vec![1.0, 0.0, 0.0]), Vec::new());
+
+    let matching = score(&profile, &input, Some(&[1.0, 0.0, 0.0]));
+    let unrelated = score(&profile, &input, Some(&[0.0, 0.0, 1.0]));
+
+    assert!(
+        matching.score > unrelated.score,
+        "a snippet that means what the project means must score higher: \
+         {} against {}",
+        matching.score,
+        unrelated.score
+    );
+}
+
+#[test]
+fn s1_stays_inside_its_range() {
+    // A cosine of -1 means the two texts are opposites. The signal is
+    // clamped, so it reaches 0 rather than going negative and dragging the
+    // weighted sum below its floor.
+    let profile = profile_with(Some(vec![1.0, 0.0]), Vec::new());
+    let input = ScoredSnippetInput::new("text", "anything at all");
+
+    let opposed = score(&profile, &input, Some(&[-1.0, 0.0]));
+
+    assert!(
+        (0.0..=1.0).contains(&opposed.semantic),
+        "S1 must stay in [0, 1], got {}",
+        opposed.semantic
+    );
+    assert!(
+        (0.0..=1.0).contains(&opposed.score),
+        "and the score must stay in [0, 1], got {}",
+        opposed.score
+    );
 }
