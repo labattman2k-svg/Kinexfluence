@@ -11,7 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
-use kfx_core::embeddings::{cosine_similarity, Embedder, EMBEDDING_DIM};
+use kfx_core::embeddings::{
+    cosine_similarity, Embedder, EmbeddingError, EMBEDDING_DIM, MODEL_SHA256, TOKENIZER_SHA256,
+};
 
 /// The directory holding the model, if it has been downloaded.
 fn model_dir() -> Option<PathBuf> {
@@ -205,8 +207,105 @@ fn a_missing_model_is_an_error_rather_than_a_panic() {
     let missing = Path::new("this-directory-does-not-exist").join("model.onnx");
 
     match Embedder::new(&missing) {
-        Err(kfx_core::embeddings::EmbeddingError::Model(_)) => {}
+        Err(EmbeddingError::Model(_)) => {}
         Err(other) => panic!("a missing model should report as a model error, got {other:?}"),
         Ok(_) => panic!("a missing model should not load"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The checksum
+//
+// ADR 0002 promises the model is "checksum verified at load time". The check
+// is what stops a corrupted or substituted model from being used, and it is
+// the difference between a model that is merely present and a model that is
+// the one the scores were calibrated against.
+//
+// A model with the wrong bytes still loads and still returns 384 numbers, so
+// nothing downstream would notice. That is exactly why the check has to be
+// here, and why it needs a test of its own.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_pinned_digests_match_the_download_script() {
+    // The script and the loader have to check the same bytes, or the download
+    // would be verified against one revision and the model used against
+    // another.
+    let script = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("scripts")
+            .join("download-model.sh"),
+    )
+    .expect("the download script is committed");
+
+    assert!(
+        script.contains(MODEL_SHA256),
+        "the script does not pin the model digest the loader expects: {MODEL_SHA256}"
+    );
+    assert!(
+        script.contains(TOKENIZER_SHA256),
+        "the script does not pin the tokenizer digest the loader expects: {TOKENIZER_SHA256}"
+    );
+}
+
+#[test]
+fn the_installed_model_matches_its_pinned_digest() {
+    let Some(dir) = model_dir() else {
+        eprintln!("skipping: the embedding model is not installed");
+        return;
+    };
+
+    // The loader already refuses a model that does not match, so reaching
+    // this point is the assertion: the model on disk is the pinned one.
+    Embedder::new(&dir.join("model.onnx")).expect("the installed model should load");
+}
+
+#[test]
+fn a_model_with_the_wrong_bytes_is_refused() {
+    // A file that is not the model at all, with the tokenizer beside it, so
+    // the checksum is what rejects it rather than the ONNX loader.
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    std::fs::write(
+        dir.path().join("model.onnx"),
+        b"not the model you are looking for",
+    )
+    .expect("the file can be written");
+    std::fs::write(dir.path().join("tokenizer.json"), b"{}").expect("the file can be written");
+
+    match Embedder::new(&dir.path().join("model.onnx")) {
+        Err(EmbeddingError::Checksum { what, expected, .. }) => {
+            assert_eq!(what, "model.onnx");
+            assert_eq!(expected, MODEL_SHA256);
+        }
+        Err(other) => panic!("a wrong model should report as a checksum error, got {other:?}"),
+        Ok(_) => panic!("a model with the wrong bytes must not load"),
+    }
+}
+
+#[test]
+fn a_tokenizer_with_the_wrong_bytes_is_refused() {
+    // The model is right, the tokenizer is not. This is the failure that
+    // would be hardest to see: the model loads, returns 384 numbers, and
+    // every one of them is derived from token ids the model was never
+    // trained on.
+    let Some(source) = model_dir() else {
+        eprintln!("skipping: the embedding model is not installed");
+        return;
+    };
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    std::fs::copy(source.join("model.onnx"), dir.path().join("model.onnx"))
+        .expect("the model can be copied");
+    std::fs::write(dir.path().join("tokenizer.json"), b"{\"version\":\"1.0\"}")
+        .expect("the file can be written");
+
+    match Embedder::new(&dir.path().join("model.onnx")) {
+        Err(EmbeddingError::Checksum { what, .. }) => {
+            assert_eq!(what, "tokenizer.json");
+        }
+        Err(other) => panic!("a wrong tokenizer should report as a checksum error, got {other:?}"),
+        Ok(_) => panic!("a tokenizer with the wrong bytes must not load"),
     }
 }

@@ -11,11 +11,15 @@
 //! padding. The mean pooling and the L2 normalisation the
 //! sentence-transformers wrapper applies live in this module, not in the graph.
 
+use std::fmt::Write as _;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use ort::session::Session;
 use ort::value::Value;
+use sha2::{Digest, Sha256};
 use tokenizers::{Tokenizer, TruncationParams};
 
 /// The dimensionality of the embedding model.
@@ -45,6 +49,21 @@ pub const TOKENIZER_FILE: &str = "tokenizer.json";
 /// fetched separately and this is how the server is told where it is.
 pub const MODEL_DIR_ENV: &str = "KINEXFLUENCE_MODEL_DIR";
 
+/// The SHA-256 of the pinned `model.onnx`.
+///
+/// ADR 0002 promises the model is "checksum verified at load time", and the
+/// download script verifies the same digest. Both are here so the two cannot
+/// drift: the script and the loader check the same bytes.
+pub const MODEL_SHA256: &str = "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452";
+
+/// The SHA-256 of the pinned `tokenizer.json`.
+///
+/// The tokenizer is verified alongside the model because a mismatched
+/// tokenizer produces different token ids, and the model then reads nonsense
+/// while still returning a vector of the right length.
+pub const TOKENIZER_SHA256: &str =
+    "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037";
+
 /// The graph's inputs and its one output.
 ///
 /// The exported transformer ends in a `last_hidden_state` node and has no
@@ -69,6 +88,17 @@ pub enum EmbeddingError {
     /// The model produced something other than the expected output.
     #[error("the embedding model produced an unusable output: {0}")]
     Output(String),
+
+    /// A file did not match the checksum it is supposed to have.
+    #[error("the {what} has checksum {actual}, expected {expected}")]
+    Checksum {
+        /// Which file was checked.
+        what: &'static str,
+        /// The digest the pinned revision is supposed to have.
+        expected: &'static str,
+        /// The digest the file on disk actually has.
+        actual: String,
+    },
 
     /// Inference itself failed.
     #[error("embedding inference failed: {0}")]
@@ -100,11 +130,20 @@ impl Embedder {
     /// `scripts/download-model.sh` puts it. The tokenizer has to be the one
     /// the model was trained with: a different tokenizer produces different
     /// token ids, and the model then sees nonsense.
+    ///
+    /// Both files are checksum-verified before either is used, as ADR 0002
+    /// promises. The check is not decoration: a wrong model still loads, still
+    /// returns 384 numbers, and would quietly move every semantic score in the
+    /// product. The model version is pinned, so the digest is too; a model
+    /// that does not match is refused rather than used.
     pub fn new(model_path: &Path) -> Result<Self, EmbeddingError> {
         let tokenizer_path = model_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(TOKENIZER_FILE);
+
+        verify_checksum(model_path, MODEL_FILE, MODEL_SHA256)?;
+        verify_checksum(&tokenizer_path, TOKENIZER_FILE, TOKENIZER_SHA256)?;
 
         let session = Session::builder()
             .and_then(|builder| builder.commit_from_file(model_path))
@@ -187,6 +226,49 @@ impl Embedder {
 
         pool(data, dims, &attention_mask, count)
     }
+}
+
+/// Check a file against the digest it is supposed to have.
+///
+/// The digest is read rather than remembered, so a file that is truncated in
+/// transit, or that has been replaced with a different revision, is caught
+/// before it can be loaded.
+fn verify_checksum(
+    path: &Path,
+    what: &'static str,
+    expected: &'static str,
+) -> Result<(), EmbeddingError> {
+    let mut file = File::open(path)
+        .map_err(|cause| EmbeddingError::Model(format!("could not read the {what}: {cause}")))?;
+
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|cause| {
+            EmbeddingError::Model(format!("could not read the {what}: {cause}"))
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    let mut actual = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        // Writing into a String cannot fail; the result is ignored rather than
+        // unwrapped because `unwrap` is forbidden outside tests.
+        let _ = write!(actual, "{byte:02x}");
+    }
+
+    if actual != expected {
+        return Err(EmbeddingError::Checksum {
+            what,
+            expected,
+            actual,
+        });
+    }
+
+    Ok(())
 }
 
 /// Mean-pool a token-level output into one sentence vector.

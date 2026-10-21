@@ -107,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `models/` at a pinned revision and verifies both against a SHA-256. The
   model is not committed: it is 90 MB, and the core builds a different ONNX
   Runtime for every platform it targets
+- The model and its tokenizer are checksum-verified again when the embedder
+  loads them, as ADR 0002 promises. A model with the wrong bytes still loads
+  and still returns 384 numbers, so without this check a substituted or
+  corrupted model would quietly move every semantic score in the product
 - S1, the semantic signal, in the scorer: the cosine similarity between a
   snippet's embedding and its project's, rescaled into [0, 1]. It carries the
   heaviest weight of the seven (0.35), and a missing embedding leaves it
