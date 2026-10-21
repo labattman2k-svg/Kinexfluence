@@ -9,7 +9,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -20,6 +20,7 @@ use tracing::error;
 
 use crate::cart::{self, CartError, CartItem};
 use crate::embeddings::Embedder;
+use crate::probe::{self, CreateProbe, Probe, ProbeError, UpdateProbe};
 use crate::project::{self, CreateProject, Project, ProjectError};
 use crate::scorer::{self, ScoreDetails, ScoredSnippetInput};
 use crate::snippet::Snippet;
@@ -100,6 +101,33 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
+impl From<ProbeError> for ApiError {
+    fn from(error: ProbeError) -> Self {
+        match error {
+            ProbeError::ItemNotFound(message) => Self::new("not_found", message),
+            ProbeError::SnippetNotFound(message) => Self::new("not_found", message),
+            ProbeError::ProjectNotFound(message) => Self::new("not_found", message),
+            ProbeError::ProbeNotFound(message) => Self::new("not_found", message),
+            ProbeError::EmptyTrigger
+            | ProbeError::NoQuestions
+            | ProbeError::NoTarget
+            | ProbeError::MismatchedAnswers { .. }
+            | ProbeError::InvalidStatus(_) => Self::new("invalid_input", error.to_string()),
+            ProbeError::Db(source) => {
+                error!(target: "kfx.api", error = %source, "database failure serving a probe request");
+                Self::new("internal", "internal error")
+            }
+            // The probe was written but could not be read back. That is the
+            // database's problem, not the caller's, and the message goes to
+            // the log rather than to a client.
+            ProbeError::Corrupt(message) => {
+                error!(target: "kfx.api", error = %message, "a probe could not be read back");
+                Self::new("internal", "internal error")
+            }
+        }
+    }
+}
+
 /// A project as the API renders it.
 ///
 /// Separate from [`Project`] on purpose, and not because of the field list:
@@ -173,6 +201,9 @@ pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
         .route("/v1/snippets", get(list_snippets))
         .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
         .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
+        .route("/v1/probes", post(submit_probe))
+        .route("/v1/probes/pending", get(list_pending_probes))
+        .route("/v1/probes/:id", patch(answer_probe))
         .layer(Extension(embedder))
         .with_state(pool)
 }
@@ -316,6 +347,11 @@ async fn list_scored_snippets(
     let project = resolve(&pool, &id).await?;
     let profile = scorer::build_profile(&project, embedder.as_deref());
 
+    // The relevance floor each snippet's probes put under it. A snippet the
+    // user has answered a probe about is lifted to what they said it was
+    // worth, whatever the heuristic thought of it.
+    let floors = probe::floors_by_snippet(&pool, &project.id).await?;
+
     let snippets = crate::snippet::list_with_metadata(&pool).await?;
 
     let mut scored: Vec<ScoredSnippetResponse> = snippets
@@ -344,7 +380,14 @@ async fn list_scored_snippets(
                 None => None,
             };
 
-            let score_details = scorer::score(&profile, &input, snippet_embedding.as_deref());
+            let probe_floor = floors.get(&s.id).copied();
+
+            let score_details = scorer::score_with_floor(
+                &profile,
+                &input,
+                snippet_embedding.as_deref(),
+                probe_floor,
+            );
             ScoredSnippetResponse {
                 id: s.id,
                 message_id: s.message_id,
@@ -372,4 +415,83 @@ async fn list_scored_snippets(
     });
 
     Ok(Json(scored))
+}
+
+// ---------------------------------------------------------------------------
+// Probes
+// ---------------------------------------------------------------------------
+
+/// A probe as the API renders it.
+///
+/// Separate from [`Probe`] because the two JSON columns are stored as text
+/// and a client wants them as arrays. The wire shape is the contract; the
+/// stored shape is the database's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeResponse {
+    pub id: String,
+    pub item_id: String,
+    pub project_id: String,
+    pub trigger: String,
+    pub questions: Vec<String>,
+    pub answers: Vec<String>,
+    pub intent: Option<String>,
+    pub rationale: Option<String>,
+    pub impact: Option<String>,
+    pub confidence: Option<String>,
+    pub status: Option<String>,
+    pub created_at: DateTime<Utc>,
+    /// The relevance floor this probe's status puts under the item.
+    ///
+    /// Sent with the probe so a client can show what the answer bought
+    /// without having to know the rule that produced it.
+    pub floor: Option<f32>,
+}
+
+/// Render a probe for the wire.
+impl From<Probe> for ProbeResponse {
+    fn from(probe: Probe) -> Self {
+        let questions = serde_json::from_str(&probe.questions_json).unwrap_or_default();
+        let answers = serde_json::from_str(&probe.answers_json).unwrap_or_default();
+        let floor = probe::floor_for_status(probe.status.as_deref());
+
+        ProbeResponse {
+            id: probe.id,
+            item_id: probe.item_id,
+            project_id: probe.project_id,
+            trigger: probe.trigger,
+            questions,
+            answers,
+            intent: probe.intent,
+            rationale: probe.rationale,
+            impact: probe.impact,
+            confidence: probe.confidence,
+            status: probe.status,
+            created_at: probe.created_at,
+            floor,
+        }
+    }
+}
+
+async fn submit_probe(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<CreateProbe>,
+) -> Result<(StatusCode, Json<ProbeResponse>), ApiError> {
+    let probe = probe::submit_probe(&pool, body).await?;
+    Ok((StatusCode::CREATED, Json(probe.into())))
+}
+
+async fn list_pending_probes(
+    State(pool): State<SqlitePool>,
+) -> Result<Json<Vec<ProbeResponse>>, ApiError> {
+    let probes = probe::list_pending(&pool).await?;
+    Ok(Json(probes.into_iter().map(Into::into).collect()))
+}
+
+async fn answer_probe(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateProbe>,
+) -> Result<Json<ProbeResponse>, ApiError> {
+    let probe = probe::update_probe(&pool, &id, body).await?;
+    Ok(Json(probe.into()))
 }
