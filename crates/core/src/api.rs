@@ -10,14 +10,16 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get},
-    Json, Router,
+    Extension, Json, Router,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tracing::error;
 
 use crate::cart::{self, CartError, CartItem};
+use crate::embeddings::Embedder;
 use crate::project::{self, CreateProject, Project, ProjectError};
 use crate::scorer::{self, ScoreDetails, ScoredSnippetInput};
 use crate::snippet::Snippet;
@@ -152,7 +154,12 @@ pub struct UpdateProjectRequest {
 }
 
 /// The project routes, with the pool attached as router state.
-pub fn router(pool: SqlitePool) -> Router {
+///
+/// The embedder rides along in a layer rather than in the router state: the
+/// pool is the only thing every handler needs, and the embedder is needed by
+/// exactly one. A layer keeps the state type of the router as the pool, so
+/// the handlers that do not embed anything are unchanged.
+pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
     Router::new()
         .route("/v1/projects", get(list_projects).post(create_project))
         .route(
@@ -166,6 +173,7 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/v1/snippets", get(list_snippets))
         .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
         .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
+        .layer(Extension(embedder))
         .with_state(pool)
 }
 
@@ -302,10 +310,11 @@ pub struct ScoredSnippetResponse {
 
 async fn list_scored_snippets(
     State(pool): State<SqlitePool>,
+    Extension(embedder): Extension<Option<Arc<Embedder>>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<ScoredSnippetResponse>>, ApiError> {
     let project = resolve(&pool, &id).await?;
-    let profile = scorer::build_profile(&project);
+    let profile = scorer::build_profile(&project, embedder.as_deref());
 
     let snippets = crate::snippet::list_with_metadata(&pool).await?;
 
@@ -319,7 +328,23 @@ async fn list_scored_snippets(
                 turn_index: s.turn_index,
                 total_turns: s.total_turns,
             };
-            let score_details = scorer::score(&profile, &input);
+
+            // The snippet's embedding is computed here, on the fly. A snippet
+            // that cannot be embedded scores with a neutral S1 rather than
+            // failing the whole request: one bad snippet must not cost the
+            // user the entire list.
+            let snippet_embedding = match embedder.as_deref() {
+                Some(embedder) => match embedder.embed_text(&input.text) {
+                    Ok(vector) => Some(vector),
+                    Err(cause) => {
+                        tracing::warn!(error = %cause, "could not embed a snippet");
+                        None
+                    }
+                },
+                None => None,
+            };
+
+            let score_details = scorer::score(&profile, &input, snippet_embedding.as_deref());
             ScoredSnippetResponse {
                 id: s.id,
                 message_id: s.message_id,

@@ -5,10 +5,12 @@ use sqlx::SqlitePool;
 use std::ffi::OsString;
 use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::TcpListener as TokioTcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 
+use crate::embeddings::Embedder;
 use crate::{Config, KfxResult};
 
 /// Origins the Atlas UI may be served from.
@@ -39,10 +41,13 @@ fn cors_layer() -> CorsLayer {
 /// The pool is router state rather than a parameter on each handler, so a
 /// handler that needs the database says so in its signature and a handler that
 /// does not cannot reach for it.
-pub fn router(pool: SqlitePool) -> Router {
+///
+/// The embedder is optional: a machine with no model installed still serves
+/// every route, and the scorer falls back to a neutral S1.
+pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
     Router::new()
         .route("/v1/health", get(health))
-        .merge(crate::api::router(pool))
+        .merge(crate::api::router(pool, embedder))
         .layer(cors_layer())
 }
 
@@ -81,7 +86,7 @@ pub async fn start(
 ) -> KfxResult<(SocketAddr, impl std::future::Future<Output = KfxResult<()>>)> {
     let listener = TokioTcpListener::bind((host, port)).await?;
     let addr = listener.local_addr()?;
-    let app = router(pool);
+    let app = router(pool, crate::embeddings::load_default());
 
     info!("Kinexfluence server listening on {}", addr);
 
@@ -152,7 +157,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../schema/migrations")]
     async fn health_reports_schema_version_1(pool: SqlitePool) -> anyhow::Result<()> {
-        let app = router(pool);
+        let app = router(pool, None);
         let request = Request::builder().uri("/v1/health").body(Body::empty())?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
@@ -166,7 +171,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../schema/migrations")]
     async fn router_has_only_expected_routes(pool: SqlitePool) -> anyhow::Result<()> {
-        let app = router(pool);
+        let app = router(pool, None);
         let request = Request::builder()
             .uri("/v1/nonexistent")
             .body(Body::empty())?;
@@ -177,7 +182,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../schema/migrations")]
     async fn cors_allows_the_ui_origin(pool: SqlitePool) -> anyhow::Result<()> {
-        let app = router(pool);
+        let app = router(pool, None);
         let request = Request::builder()
             .uri("/v1/health")
             .header("origin", "http://localhost:5173")
@@ -197,7 +202,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../schema/migrations")]
     async fn cors_rejects_an_unknown_origin(pool: SqlitePool) -> anyhow::Result<()> {
-        let app = router(pool);
+        let app = router(pool, None);
         let request = Request::builder()
             .uri("/v1/health")
             .header("origin", "https://evil.example")
@@ -217,7 +222,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../schema/migrations")]
     async fn cors_allows_delete_for_the_ui(pool: SqlitePool) -> anyhow::Result<()> {
-        let app = router(pool);
+        let app = router(pool, None);
 
         // A real preflight: the browser sends OPTIONS before a DELETE and
         // refuses to send the request unless DELETE comes back in the allowed

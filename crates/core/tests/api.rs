@@ -27,7 +27,7 @@ async fn call(
     uri: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
-    let app = server::router(pool.clone());
+    let app = server::router(pool.clone(), None);
 
     let builder = Request::builder().method(method).uri(uri);
     let request = match body {

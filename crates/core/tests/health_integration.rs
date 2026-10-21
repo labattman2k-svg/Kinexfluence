@@ -12,7 +12,7 @@ use tower::ServiceExt;
 // freshly migrated one.
 #[sqlx::test(migrations = "../../schema/migrations")]
 async fn test_health_endpoint(pool: SqlitePool) {
-    let app = server::router(pool);
+    let app = server::router(pool, None);
 
     let request = Request::builder()
         .uri("/v1/health")
