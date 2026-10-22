@@ -1,0 +1,209 @@
+Kinexfluence Proprietary License
+===============================
+
+SPDX-License-Identifier: LicenseRef-Proprietary
+
+Copyright (c) 2026 Kinexfluence. All rights reserved.
+
+This document is the license for the Kinexfluence software (the "Software").
+It is a proprietary license. It is not an open source license, and it is not
+an offer to the public. Nothing in it obliges the Licensor to publish the
+Software, to publish its source, or to grant any right in it to anyone else.
+
+
+1. Definitions
+--------------
+
+"Licensor" means the copyright holder of the Software, identified above.
+
+"Licensee" means the person or entity that receives the Software from the
+Licensor and accepts this License.
+
+"You" means the Licensee.
+
+"Output" means the material the Software produces from your own inputs --
+imported snippets, scores, project context packs, and anything else it writes
+for you to read.
+
+
+2. Grant of License
+-------------------
+
+Subject to your compliance with this License, and only for so long as you
+comply with it, the Licensor grants you a limited, non-exclusive,
+non-transferable, non-sublicensable, revocable, royalty-free license to:
+
+  a. install and run the Software on hardware you control; and
+  b. use the Output for any purpose that is not commercial use.
+
+This is an evaluation license. The Software may be in a pre-release state, and
+the Licensor makes no commitment to release a generally available version.
+
+
+3. Restrictions
+---------------
+
+Unless the Licensor gives you a separate written agreement saying otherwise,
+you may not:
+
+  a. copy, publish, distribute, sublicense, sell, rent, lease, lend, host,
+     transmit, or otherwise make the Software available to any third party,
+     whether modified or unmodified, and whether for money or not;
+  b. use the Software, or any part of it, for any commercial purpose, or in
+     the course of any business, employment, or paid engagement;
+  c. use the Software to build, train, evaluate, or benchmark a product or
+     service that competes with it, or that derives from it;
+  d. reverse engineer, decompile, or disassemble the Software, except to the
+     extent that restriction is prohibited by applicable law and you notify
+     the Licensor in writing of the lawful basis for doing so;
+  e. remove, obscure, or alter any copyright, trade mark, licence, or other
+     proprietary notice in the Software or in any file of it;
+  f. use the Licensor's names, trade marks, or logos, except as required to
+     describe the fact that you use the Software; or
+  g. publish the Output in a way that suggests the Licensor endorses it.
+
+If you are an employee or contractor of a company that has a separate written
+agreement with the Licensor, that agreement may grant you wider rights. It
+overrides this License where it says so, and only where it says so.
+
+
+4. No Other Rights
+------------------
+
+This License grants you the rights stated in it and no others. In
+particular, it does not grant you:
+
+  a. the right to distribute the Software, whether modified or unmodified;
+  b. the right to sublicense any part of the Software, or to include it in
+     any product, service, or repository that is made available to others;
+  c. the right to use the Software commercially;
+  d. any right in the Licensor's trade marks or the name "Kinexfluence"; or
+  e. any patent, copyright, or other intellectual property right in the
+     Software beyond the license granted in section 2.
+
+Nothing in this License is to be read as granting rights that the Licensor
+does not have the authority to grant.
+
+
+5. Third-Party Components
+-------------------------
+
+The Software incorporates, links to, or is distributed alongside
+third-party components that are licensed separately, including the Rust
+crates and JavaScript packages listed in the project's dependency manifests
+and the `all-MiniLM-L6-v2` sentence-embedding model, which is licensed under
+the Apache License 2.0. Those components are not covered by this License and
+are not licensed to you by it; their own terms govern their use, including
+any requirement to reproduce their notices.
+
+Your Output may contain material that originated with a third party, and the
+Licensor makes no representation about the rights in it. You are responsible
+for what you do with your Output.
+
+The Licensor does not warrant that the third-party components listed in this
+section are complete, current, or accurate; the dependency manifests and
+`deny.toml` in the Software's source tree are the record of what is actually
+included.
+
+
+6. Prior Versions
+-----------------
+
+Versions of the Software released before 22 October 2026 were published to a
+public source repository whose package manifests declared the GNU Affero
+General Public License, version 3 or later ("AGPL-3.0-or-later"). No full
+copy of that licence accompanied them; the declaration in the manifests was
+the licence under which they were offered.
+
+If you obtained a copy of any of those versions, that licence is not
+revoked by this one. This License does not withdraw it, does not narrow it,
+and does not restrict the rights you have in those versions under it. The
+corresponding source for those versions remains available in that
+repository's public history.
+
+This License governs the Software as of the date above and every version of
+it released afterwards. Where the two overlap, this License governs the
+newer version, and the AGPL continues to govern the earlier one.
+
+
+7. Termination
+--------------
+
+Your rights under this License end automatically if you breach it. The
+Licensor may also terminate this License at any time on written notice. On
+termination you must stop using the Software and delete every copy of it in
+your possession or control, including copies in your build artefacts, caches,
+and derived work, save that your rights in the versions described in section 6
+are unaffected.
+
+
+8. Disclaimer of Warranty
+-------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. THE LICENSOR
+DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, OR
+FREE OF HARMFUL COMPONENTS, OR THAT THE OUTPUT WILL BE ACCURATE, COMPLETE,
+OR FIT FOR ANY PURPOSE. THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE
+RUNS ON ANY OPERATING SYSTEM, HARDWARE, OR CONFIGURATION OTHER THAN THE ONES
+IT EXPLICITLY STATES IT SUPPORTS.
+
+
+9. Limitation of Liability
+--------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT (INCLUDING NEGLIGENCE), OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE, OR FOR ANY LOSS OF
+DATA, LOSS OF PROFITS, OR BUSINESS INTERRUPTION, EVEN IF THE LICENSOR HAS
+BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+THE FOREGOING EXCLUSIONS AND LIMITATIONS SHALL APPLY TO THE MAXIMUM EXTENT
+PERMITTED BY APPLICABLE LAW, AND SHALL NOT BE EXCLUDED OR LIMITED BY ANY
+"EXCLUDES ALL LIABILITY" OR SIMILAR TERM, BUT NOTHING IN THIS SECTION
+EXCLUDES OR LIMITS LIABILITY FOR DEATH OR PERSONAL INJURY RESULTING FROM
+THE LICENSOR'S NEGLIGENCE, FOR FRAUD OR FRAUDULENT MISREPRESENTATION, OR
+FOR ANY OTHER LIABILITY THAT CANNOT BE EXCLUDED BY LAW.
+
+
+10. Trade Marks
+---------------
+
+The name "Kinexfluence" and the Kinexfluence icon are used by the Licensor
+as marks. This License grants no right to use them as a trade mark, and no
+right to use them in a way that suggests the Licensor endorses your product
+or service, except as section 3(f) allows.
+
+
+11. Changes to This License
+---------------------------
+
+The Licensor may amend this License from time to time. The amended terms
+apply from the date they are published, to the versions of the Software
+released on or after that date, and not retroactively to versions you already
+hold. No amendment removes or narrows the rights granted to you in any
+version you obtained before the amendment.
+
+
+12. Governing Law and Disputes
+------------------------------
+
+This License is governed by the laws that apply at the Licensor's place of
+establishment, without regard to its conflict-of-law rules, and the parties
+submit to the exclusive jurisdiction of the courts of that place for any
+dispute arising out of or relating to this License or the Software. The
+Licensor's place of establishment and a contact address for legal notices
+are to be inserted here before the Software is distributed to anyone outside
+the Licensor's own machine.
+
+
+13. Notices
+-----------
+
+Notices to the Licensor under this License must be in writing and sent to the
+address in section 12, or to the address published in the Software's
+`SECURITY.md` once that file's placeholder address has been replaced. Notices
+to you are effective when delivered to the address you used to obtain the
+Software.
