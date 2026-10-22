@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  commitCart,
   getCart,
   removeFromCart,
   listScoredSnippets,
@@ -27,6 +28,9 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
   const [scores, setScores] = useState<Map<string, ScoreEntry>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // How many items the last commit moved, or null when none has happened.
+  const [committed, setCommitted] = useState<number | null>(null);
+  const [committing, setCommitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +67,12 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
     };
   }, [projectId, cartReloadToken]);
 
+  // The commit message belongs to the project it was made in, so it does not
+  // follow the user to another one.
+  useEffect(() => {
+    setCommitted(null);
+  }, [projectId]);
+
   const handleRemove = async (itemId: string) => {
     try {
       await removeFromCart(projectId, itemId);
@@ -76,18 +86,54 @@ export function CartSidebar({ projectId, cartReloadToken, onCartChanged, onBack 
     onCartChanged();
   };
 
+  const handleCommit = async () => {
+    setCommitting(true);
+    setError(null);
+    try {
+      const result = await commitCart(projectId);
+      setCommitted(result.committed);
+      // The items are the project's now, not the cart's. The list is emptied
+      // here rather than waiting for the refetch, so the sidebar does not
+      // show a cart that no longer exists.
+      setCartItems([]);
+      // The parent's token makes `SnippetList` drop the committed snippets
+      // from its own copy of the cart, so the checkboxes agree with the
+      // server.
+      onCartChanged();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setCommitting(false);
+    }
+  };
+
   return (
     <aside className="kfx-cart-sidebar">
       <div className="kfx-panel-head">
         <h2>Cart</h2>
-        <button type="button" onClick={onBack}>
-          Back
-        </button>
+        <div className="kfx-panel-actions">
+          <button type="button" onClick={onBack}>
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={handleCommit}
+            disabled={committing || cartItems.length === 0}
+          >
+            Commit to Project
+          </button>
+        </div>
       </div>
 
       {error && (
         <p className="kfx-error" role="alert">
           {error}
+        </p>
+      )}
+
+      {committed !== null && (
+        <p className="kfx-muted" role="status">
+          Committed {committed} item{committed === 1 ? "" : "s"} to the project.
         </p>
       )}
 
