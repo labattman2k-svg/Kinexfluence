@@ -120,6 +120,15 @@ enum ProjectCmd {
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
+    /// Write the project's context pack as Markdown.
+    Export {
+        id_or_slug: String,
+        /// Where to write the pack. Standard output when not given.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
 }
 
 /// The `snippets` subcommands.
@@ -351,6 +360,11 @@ async fn project(cmd: ProjectCmd) -> Result<(), CliError> {
             status,
             db,
         } => project_status(&id_or_slug, &status, &db).await,
+        ProjectCmd::Export {
+            id_or_slug,
+            out,
+            db,
+        } => project_export(&id_or_slug, out.as_deref(), &db).await,
     }
 }
 
@@ -491,6 +505,50 @@ async fn project_status(id_or_slug: &str, status: &str, db: &str) -> Result<(), 
         project.slug, project.id, status
     );
     Ok(())
+}
+
+/// Write the project's context pack, as Markdown.
+///
+/// The pack goes to standard output when no file is named, so it can be piped
+/// into something else. The file is written whole: a half-written pack is
+/// worse than none, because a reader cannot tell which half is missing.
+async fn project_export(id_or_slug: &str, out: Option<&Path>, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let markdown = kfx_core::exporter::export_project(&pool, id_or_slug)
+        .await
+        .map_err(export_error)?;
+
+    match out {
+        Some(file) => {
+            std::fs::write(file, &markdown).map_err(|error| {
+                CliError::InvalidInput(format!("writing {}: {error}", file.display()))
+            })?;
+            eprintln!("wrote {}", file.display());
+        }
+        None => print!("{markdown}"),
+    }
+
+    Ok(())
+}
+
+/// Map a domain error onto the CLI's exit-code taxonomy.
+fn export_error(error: kfx_core::exporter::ExportError) -> CliError {
+    use kfx_core::exporter::ExportError;
+
+    match error {
+        ExportError::ProjectNotFound(message) => CliError::NotFound(message),
+        ExportError::Project(source) => project_error(source),
+        ExportError::Db(error) => CliError::Database(error.to_string()),
+    }
 }
 
 fn print_project(project: &kfx_core::project::Project) {
