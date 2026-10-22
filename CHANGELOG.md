@@ -176,6 +176,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and says how many items moved
 - Commit E2E test (`ui/tests/e2e/commit-flow.spec.ts`): fills the cart,
   commits it, and checks the export holds what was in the cart
+- A README (`README.md`): what the project is, what it takes to install it,
+  the five-step loop with the commands for each step, the caveats, the
+  security posture, and the licence and legal disclaimers. Every command
+  in it was run against a scratch database before it was written down
+- ADR 0008 (`docs/adr/0008-proprietary-licence.md`): the decision to
+  license the project proprietarily rather than under the AGPL its
+  manifests used to declare, and what that decision does and does not
+  change about the versions already published
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
