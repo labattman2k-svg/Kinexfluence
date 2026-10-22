@@ -72,6 +72,23 @@ async fn cart_len(pool: &SqlitePool, project_id: &str) -> Result<i64, sqlx::Erro
         .await
 }
 
+/// The actions recorded in `event_log` for one item's membership of a
+/// project, oldest first.
+///
+/// The order matters as much as the content: a cart that was filled and
+/// emptied has to read back as `created` and then `deleted`, not as two
+/// unordered rows.
+async fn membership_actions(pool: &SqlitePool, item_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT action FROM event_log
+         WHERE entity_type = 'item_project' AND entity_id = ?
+         ORDER BY rowid",
+    )
+    .bind(item_id)
+    .fetch_all(pool)
+    .await
+}
+
 #[sqlx::test(migrations = "../../schema/migrations")]
 async fn add_to_cart_creates_item_and_entry(
     pool: SqlitePool,
@@ -102,6 +119,12 @@ async fn add_to_cart_creates_item_and_entry(
     );
 
     assert_eq!(cart_len(&pool, &project_id).await?, 1);
+
+    assert_eq!(
+        membership_actions(&pool, &item_id).await?,
+        vec!["created"],
+        "adding to the cart is a mutation of item_project and must be logged"
+    );
     Ok(())
 }
 
@@ -127,6 +150,12 @@ async fn add_to_cart_is_idempotent(pool: SqlitePool) -> Result<(), Box<dyn std::
         .fetch_one(&pool)
         .await?;
     assert_eq!(items, 1, "and must not create a second item row");
+
+    assert_eq!(
+        membership_actions(&pool, &first).await?,
+        vec!["created"],
+        "and must not log a second mutation for a membership that did not change"
+    );
 
     Ok(())
 }
@@ -186,6 +215,73 @@ async fn remove_from_cart_deletes_the_entry(
         item.is_some(),
         "removing from the cart must not delete the item"
     );
+
+    assert_eq!(
+        membership_actions(&pool, &item_id).await?,
+        vec!["created", "deleted"],
+        "the log should read as the membership being made and then unmade"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn removing_an_item_that_is_not_in_the_cart_logs_nothing(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snippet_id = seed_snippet(&pool).await?;
+    let project_id = seed_project(&pool, "Alpha Project").await?;
+
+    let item_id = cart::add_to_cart(&pool, &project_id, &snippet_id).await?;
+    cart::remove_from_cart(&pool, &project_id, &item_id).await?;
+
+    // A second removal changes nothing, so it must not claim that it did.
+    let error = cart::remove_from_cart(&pool, &project_id, &item_id)
+        .await
+        .expect_err("removing an item that is not in the cart should fail");
+
+    assert!(matches!(error, CartError::Database(_)), "got {error:?}");
+
+    assert_eq!(
+        membership_actions(&pool, &item_id).await?,
+        vec!["created", "deleted"],
+        "a removal that changed nothing must not be logged"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn cart_mutations_are_logged_against_the_membership(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snippet_id = seed_snippet(&pool).await?;
+    let project_id = seed_project(&pool, "Alpha Project").await?;
+
+    let item_id = cart::add_to_cart(&pool, &project_id, &snippet_id).await?;
+    cart::remove_from_cart(&pool, &project_id, &item_id).await?;
+
+    // The whole row, not just the action: the standard says the mutation
+    // must be reconstructable, and that means knowing which entity it
+    // happened to and who did it.
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT entity_type, action, actor FROM event_log
+         WHERE entity_type = 'item_project' AND entity_id = ?
+         ORDER BY rowid",
+    )
+    .bind(&item_id)
+    .fetch_all(&pool)
+    .await?;
+
+    assert_eq!(rows.len(), 2, "both mutations should be logged: {rows:?}");
+    for (entity_type, action, actor) in &rows {
+        assert_eq!(entity_type, "item_project", "the entity is the membership");
+        assert_eq!(actor, "user", "the cart is the user's to change");
+        assert!(
+            action == "created" || action == "deleted",
+            "got an unexpected action: {action}"
+        );
+    }
 
     Ok(())
 }
@@ -319,7 +415,8 @@ async fn commit_cart_writes_an_event_log_row(
 
     let logged: Option<(String, String, String, String)> = sqlx::query_as(
         "SELECT entity_type, entity_id, action, actor
-         FROM event_log WHERE entity_type = 'item_project' AND entity_id = ?",
+         FROM event_log
+         WHERE entity_type = 'item_project' AND entity_id = ? AND action = 'committed'",
     )
     .bind(&item_id)
     .fetch_optional(&pool)
@@ -331,6 +428,12 @@ async fn commit_cart_writes_an_event_log_row(
     assert_eq!(entity_id, item_id);
     assert_eq!(action, "committed");
     assert_eq!(actor, "user");
+
+    assert_eq!(
+        membership_actions(&pool, &item_id).await?,
+        vec!["created", "committed"],
+        "the whole history of the membership should read back in order"
+    );
 
     Ok(())
 }

@@ -199,6 +199,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every other snippet in the list grey
 
 ### Fixed
+- `add_to_cart` and `remove_from_cart` now write to `event_log`, which
+  STANDARDS section 2 requires of every mutation to `item_project`. Each
+  membership change is recorded as `created` or `deleted`, alongside the
+  `committed` the commit flow already wrote, and the membership and its log
+  row are written in the same transaction so the two cannot disagree
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
 - `crates/tauri` propagates the Tauri run error instead of panicking on it.
   This was the last `expect` outside tests in the tree
