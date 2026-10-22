@@ -20,6 +20,7 @@ use tracing::error;
 
 use crate::cart::{self, CartError, CartItem};
 use crate::embeddings::Embedder;
+use crate::exporter::{self, ExportError};
 use crate::probe::{self, CreateProbe, Probe, ProbeError, UpdateProbe};
 use crate::project::{self, CreateProject, Project, ProjectError};
 use crate::scorer::{self, ScoreDetails, ScoredSnippetInput};
@@ -88,6 +89,19 @@ impl From<CartError> for ApiError {
             CartError::ProjectNotFound(message) => Self::new("not_found", message),
             CartError::Database(source) => {
                 error!(target: "kfx.api", error = %source, "database failure serving a cart request");
+                Self::new("internal", "internal error")
+            }
+        }
+    }
+}
+
+impl From<ExportError> for ApiError {
+    fn from(error: ExportError) -> Self {
+        match error {
+            ExportError::ProjectNotFound(message) => Self::new("not_found", message),
+            ExportError::Project(source) => Self::from(source),
+            ExportError::Db(source) => {
+                error!(target: "kfx.api", error = %source, "database failure serving an export request");
                 Self::new("internal", "internal error")
             }
         }
@@ -198,6 +212,7 @@ pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
             "/v1/projects/:id/snippets/scored",
             get(list_scored_snippets),
         )
+        .route("/v1/projects/:id_or_slug/export", get(export_project))
         .route("/v1/snippets", get(list_snippets))
         .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
         .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
@@ -238,6 +253,23 @@ async fn get_project(
     Path(id_or_slug): Path<String>,
 ) -> Result<Json<ProjectResponse>, ApiError> {
     Ok(Json(resolve(&pool, &id_or_slug).await?.into()))
+}
+
+/// The project's context pack, as Markdown.
+///
+/// A document rather than JSON, because the pack is meant to be read, saved,
+/// or piped into something else, and a client that has to unwrap a JSON
+/// string to get at the text is doing work the server should have done.
+async fn export_project(
+    State(pool): State<SqlitePool>,
+    Path(id_or_slug): Path<String>,
+) -> Result<Response, ApiError> {
+    let markdown = exporter::export_project(&pool, &id_or_slug).await?;
+    let content_type = [(
+        axum::http::header::CONTENT_TYPE,
+        "text/markdown; charset=utf-8",
+    )];
+    Ok((content_type, markdown).into_response())
 }
 
 async fn update_project(
