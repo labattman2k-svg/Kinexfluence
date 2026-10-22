@@ -4,15 +4,10 @@ import { answerProbe, submitProbe, type Probe } from "../lib/api";
 /**
  * The four questions every probe asks.
  *
- * The same four, in the same order, for every probe. The point of the
- * mechanism is that the answers are comparable across snippets: one set of
- * questions each time means a user who has answered a dozen probes can see
- * their own reasoning, and the stored answers can be compared with each
- * other rather than with a different question each time.
- *
- * The order matches the backend's columns: `intent`, `impact`, `rationale`,
- * `confidence`. The field is named after what the answer is for; the
- * question is what the user is asked.
+ * The same four, in the same order, for every probe: the answers have to be
+ * comparable across snippets, and a different set each time would make them
+ * incomparable. The order matches the backend's columns -- `intent`,
+ * `impact`, `rationale`, `confidence`.
  */
 export const PROBE_FIELDS = [
   { key: "intent", label: "Intent", question: "What is this?" },
@@ -32,11 +27,8 @@ export type ProbeFieldKey = (typeof PROBE_FIELDS)[number]["key"];
 export type ProbeAnswers = Record<ProbeFieldKey, string>;
 
 /**
- * What the modal is about.
- *
- * Either a snippet the user is claiming matters, or a probe that is already
- * waiting for an answer. The two are different jobs: the first creates the
- * probe and the answer together, the second answers one that exists.
+ * What the modal is about: either a snippet the user is claiming matters, or
+ * a probe already waiting for an answer.
  */
 export type ProbeTarget =
   | { kind: "snippet"; snippetId: string; text: string; score: number }
@@ -55,12 +47,9 @@ function emptyAnswers(): ProbeAnswers {
 
 /** The answers of a probe already in the queue, as the modal shows them. */
 function existingAnswers(probe: Probe): ProbeAnswers {
-  return {
-    intent: probe.intent ?? "",
-    impact: probe.impact ?? "",
-    rationale: probe.rationale ?? "",
-    confidence: probe.confidence ?? "",
-  };
+  const answers = emptyAnswers();
+  for (const field of PROBE_FIELDS) answers[field.key] = probe[field.key] ?? "";
+  return answers;
 }
 
 /** A trimmed answer, or nothing at all for one that was left blank. */
@@ -81,10 +70,7 @@ interface Props {
  * snippet does not matter and the user says it does.
  *
  * The four fields map one to one onto the backend's `intent`, `impact`,
- * `rationale`, and `confidence` columns, and onto the `answers` array, so
- * the same answer is stored in both the general form and the indexed one.
- * A client that wants the four fields reads the columns; a client that wants
- * the questions with their answers reads the arrays.
+ * `rationale`, and `confidence` columns, and onto the `answers` array.
  */
 export function ProbeModal({ projectId, target, onClose, onAnswered }: Props) {
   const [answers, setAnswers] = useState<ProbeAnswers>(() =>
@@ -93,9 +79,7 @@ export function ProbeModal({ projectId, target, onClose, onAnswered }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A probe with no answer is a question the user has not asked themselves,
-  // so at least one field has to be filled before the probe is worth
-  // recording.
+  // A probe with no answer is a question the user has not asked themselves.
   const answered = PROBE_FIELDS.some((field) => answers[field.key].trim() !== "");
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -105,6 +89,13 @@ export function ProbeModal({ projectId, target, onClose, onAnswered }: Props) {
     setSaving(true);
     setError(null);
 
+    const named = {
+      intent: orNothing(answers.intent),
+      impact: orNothing(answers.impact),
+      rationale: orNothing(answers.rationale),
+      confidence: orNothing(answers.confidence),
+    };
+
     try {
       if (target.kind === "snippet") {
         await submitProbe({
@@ -113,10 +104,7 @@ export function ProbeModal({ projectId, target, onClose, onAnswered }: Props) {
           trigger: TRIGGER,
           questions: PROBE_FIELDS.map((field) => field.question),
           answers: PROBE_FIELDS.map((field) => answers[field.key].trim()),
-          intent: orNothing(answers.intent),
-          impact: orNothing(answers.impact),
-          rationale: orNothing(answers.rationale),
-          confidence: orNothing(answers.confidence),
+          ...named,
           status: SETTLED,
         });
       } else {
@@ -124,22 +112,13 @@ export function ProbeModal({ projectId, target, onClose, onAnswered }: Props) {
 
         // The answers array lines up with the questions that were asked. A
         // probe raised elsewhere may have asked a different number of them,
-        // and an answer that does not line up is refused by the server
-        // rather than stored against the wrong question. The named columns
-        // carry the answer either way.
+        // and one that does not line up is refused by the server.
         const lines =
           probe.questions.length === PROBE_FIELDS.length
             ? PROBE_FIELDS.map((field) => answers[field.key].trim())
             : undefined;
 
-        await answerProbe(probe.id, {
-          answers: lines,
-          intent: orNothing(answers.intent),
-          impact: orNothing(answers.impact),
-          rationale: orNothing(answers.rationale),
-          confidence: orNothing(answers.confidence),
-          status: SETTLED,
-        });
+        await answerProbe(probe.id, { answers: lines, ...named, status: SETTLED });
       }
 
       onAnswered();

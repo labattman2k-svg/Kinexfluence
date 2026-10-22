@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * The probe flow, driven the way a person does it.
@@ -13,13 +13,9 @@ import { expect, test } from "@playwright/test";
  */
 
 /**
- * The ports the core might be on, in the order to try them.
- *
- * The core binds the first free port from its configured starting point. The
- * Playwright config asks for 47899, but the core moves on if that port is
- * taken -- and `reuseExistingServer` means an already-running core on any
- * port could be answering instead. So the test probes the same range the UI
- * does, and takes whichever answers.
+ * The ports the core might be on, in the order to try them: the core binds
+ * the first free port, and `reuseExistingServer` means an already-running
+ * core on any port could be answering.
  */
 const CANDIDATE_PORTS = [
   47899, 47821, 47822, 47823, 47824, 47825, 47826, 47827, 47828, 47829, 47830,
@@ -49,56 +45,8 @@ async function fetchCore(): Promise<string> {
   throw new Error("Cannot reach the Kinexfluence core on any expected port.");
 }
 
-/**
- * The scorer's entity rules, as patterns.
- *
- * A Capitalised word of more than three characters, a camelCase word, or a
- * snake_case word. Any of these, taken from a snippet's own text, is one the
- * scorer extracts as an entity -- and the snippet therefore contains it, so
- * the entity match follows.
- */
-const ENTITY_PATTERNS = [
-  /^[A-Z][A-Za-z0-9]{3,}$/,
-  /^[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*$/,
-  /^(?=[A-Za-z0-9]*[A-Za-z])[a-z0-9]+(_[a-z0-9]+)+$/i,
-];
-
-/**
- * A brief guaranteed to match the snippets, whatever the fixture holds.
- *
- * The bands are relative to the list, so a list where every snippet scored
- * the same would have no low band and the test would have nothing to probe.
- * A brief derived from the snippets themselves keeps the entity signal
- * working, and therefore keeps the scores spread out.
- */
-async function deriveBrief(): Promise<string> {
-  const core = await fetchCore();
-  const response = await fetch(`${core}/v1/snippets?limit=50&offset=0`);
-  if (!response.ok) {
-    throw new Error(`Could not list snippets: ${response.status}`);
-  }
-
-  const snippets = (await response.json()) as { text: string }[];
-  if (snippets.length === 0) {
-    throw new Error("The core holds no snippets, so the fixture import failed.");
-  }
-
-  const words = snippets
-    .flatMap((snippet) => snippet.text.split(/\s+/))
-    .map((word) => word.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, ""));
-
-  const entity = words.find((word) => ENTITY_PATTERNS.some((p) => p.test(word)));
-  if (entity) return entity;
-
-  return words.find((word) => word.length > 3) ?? "brief";
-}
-
 /** A snippet as the scored-snippets endpoint renders it. */
-interface ScoredSnippet {
-  id: string;
-  score: number;
-  score_details: { probe_floor: number | null };
-}
+type ScoredSnippet = { id: string; score: number; score_details: { probe_floor: number | null } };
 
 /** The project the test created, by name. */
 async function findProject(core: string, name: string) {
@@ -111,42 +59,54 @@ async function findProject(core: string, name: string) {
   return project;
 }
 
-/** The scored snippets of a project, as the API sees them. */
-async function scoredSnippets(core: string, projectId: string) {
+/** Create a project through the UI. */
+async function createProject(page: Page, name: string) {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByLabel("Name").fill(name);
+  // The brief names nothing in the fixture, so the scorer has no reason to
+  // like any snippet and the low band -- the one this flow probes -- is
+  // populated. The other E2E test derives its brief from the fixture
+  // instead, because it needs the high band to be populated.
+  await page.getByLabel("Brief").fill("the storage decision");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByRole("button", { name })).toBeVisible();
+}
+
+/** Open the snippet browser of a project. */
+async function openSnippets(page: Page, name: string) {
+  await page.getByRole("button", { name }).click();
+  await page.getByRole("button", { name: "Open Cart" }).click();
+  await expect(page.getByRole("heading", { name: "Snippets" })).toBeVisible();
+}
+
+/** Answer the four questions in the open modal. */
+async function answerProbe(modal: Locator) {
+  await modal.getByLabel("Intent", { exact: true }).fill("records the storage decision");
+  await modal.getByLabel("Impact", { exact: true }).fill("rules out the flat-file store");
+  await modal.getByLabel("Rationale", { exact: true }).fill("it is what the project is about");
+  await modal.getByLabel("Confidence", { exact: true }).fill("settled");
+}
+
+/**
+ * The server's own account of a probed snippet: a settled probe puts the
+ * snippet at 0.90 or above, and reports the floor beside the signals.
+ */
+async function expectFloored(core: string, projectId: string, snippetId: string) {
   const response = await fetch(
     `${core}/v1/projects/${encodeURIComponent(projectId)}/snippets/scored`
   );
   if (!response.ok) {
     throw new Error(`Could not list the scored snippets: ${response.status}`);
   }
-  return (await response.json()) as ScoredSnippet[];
-}
-
-/** The id of the first snippet the core holds. */
-async function firstSnippetId(core: string): Promise<string> {
-  const snippets = (await (await fetch(`${core}/v1/snippets?limit=50&offset=0`)).json()) as {
-    id: string;
-  }[];
-  if (snippets.length === 0) {
-    throw new Error("The core holds no snippets, so the fixture import failed.");
-  }
-  return snippets[0].id;
-}
-
-/** Create a project through the UI and return its id. */
-async function createProject(page: import("@playwright/test").Page, name: string) {
-  const brief = await deriveBrief();
-
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "New project" }).click();
-  await page.getByLabel("Name").fill(name);
-  await page.getByLabel("Brief").fill(brief);
-  await page.getByRole("button", { name: "Create project" }).click();
-
-  await expect(page.getByRole("button", { name })).toBeVisible();
+  const scored = (await response.json()) as ScoredSnippet[];
+  const probed = scored.find((snippet) => snippet.id === snippetId);
+  expect(probed, "the probed snippet should still be scored").toBeDefined();
+  expect(probed!.score).toBeGreaterThanOrEqual(0.9);
+  expect(probed!.score_details.probe_floor).toBe(0.9);
 }
 
 test("a low-scoring snippet can be probed, and the answer floors it", async ({
@@ -156,11 +116,7 @@ test("a low-scoring snippet can be probed, and the answer floors it", async ({
   const core = await fetchCore();
 
   await createProject(page, projectName);
-
-  await page.getByRole("button", { name: projectName }).click();
-  await page.getByRole("button", { name: "Open Cart" }).click();
-
-  await expect(page.getByRole("heading", { name: "Snippets" })).toBeVisible();
+  await openSnippets(page, projectName);
 
   // Find a snippet the scorer thinks is worth nothing. The bands are
   // relative to the list, so the band is read from the badge rather than
@@ -171,7 +127,7 @@ test("a low-scoring snippet can be probed, and the answer floors it", async ({
     nodes.map((node) => (node as HTMLElement).dataset.band)
   );
   const lowIndex = bands.findIndex((band) => band === "low");
-  expect(lowIndex).toBeGreaterThan(-1);
+  expect(lowIndex, "the fixture should hold a snippet the scorer dismisses").toBeGreaterThan(-1);
 
   const checkboxes = page.locator('.kfx-snippet-list input[type="checkbox"]');
   await expect(checkboxes.nth(lowIndex)).not.toBeChecked();
@@ -193,13 +149,7 @@ test("a low-scoring snippet can be probed, and the answer floors it", async ({
   const submit = modal.getByRole("button", { name: "Submit probe" });
   await expect(submit).toBeDisabled();
 
-  await modal.getByLabel("Intent", { exact: true }).fill("records the storage decision");
-  await modal.getByLabel("Impact", { exact: true }).fill("rules out the flat-file store");
-  await modal
-    .getByLabel("Rationale", { exact: true })
-    .fill("it is the decision the project is about");
-  await modal.getByLabel("Confidence", { exact: true }).fill("settled");
-
+  await answerProbe(modal);
   await expect(submit).toBeEnabled();
   await submit.click();
   await expect(modal).toHaveCount(0);
@@ -210,17 +160,11 @@ test("a low-scoring snippet can be probed, and the answer floors it", async ({
 
   // And it is in the cart, because a snippet the user says matters is
   // there whether the scorer agrees or not.
-  const cartItems = page.locator(".kfx-cart-sidebar .kfx-list-item");
-  await expect(cartItems).toHaveCount(1);
+  await expect(page.locator(".kfx-cart-sidebar .kfx-list-item")).toHaveCount(1);
 
-  // The server agrees. A settled probe puts the snippet at 0.90 or above,
-  // and reports the floor beside the signals rather than folding it in.
+  // And the server agrees.
   const project = await findProject(core, projectName);
-  const scored = await scoredSnippets(core, project.id);
-  const probed = scored.find((snippet) => snippet.id === snippetId);
-  expect(probed, "the probed snippet should still be scored").toBeDefined();
-  expect(probed!.score).toBeGreaterThanOrEqual(0.9);
-  expect(probed!.score_details.probe_floor).toBe(0.9);
+  await expectFloored(core, project.id, snippetId);
 });
 
 test("a probe waiting for an answer can be answered from the queue", async ({
@@ -232,12 +176,15 @@ test("a probe waiting for an answer can be answered from the queue", async ({
   await createProject(page, projectName);
 
   const project = await findProject(core, projectName);
-  const snippetId = await firstSnippetId(core);
+  const listed = (await (await fetch(`${core}/v1/snippets?limit=1&offset=0`)).json()) as {
+    id: string;
+  }[];
+  expect(listed.length, "the fixture import should have produced snippets").toBeGreaterThan(0);
+  const snippetId = listed[0].id;
 
-  // A probe raised elsewhere and left unanswered. The queue exists for the
-  // probes the user has not got to yet, and a client other than this one
-  // can raise them -- so the setup goes through the API, the same way the
-  // extension or the CLI would.
+  // A probe raised elsewhere and left unanswered, the way the extension
+  // would raise it. The queue is fetched when the snippet browser opens, so
+  // the probe has to be raised before it is.
   const raised = await fetch(`${core}/v1/probes`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -251,11 +198,7 @@ test("a probe waiting for an answer can be answered from the queue", async ({
   expect(raised.status).toBe(201);
   const probeId = ((await raised.json()) as { id: string }).id;
 
-  // The queue is fetched when the snippet browser opens, so the probe has
-  // to be raised before it is.
-  await page.getByRole("button", { name: projectName }).click();
-  await page.getByRole("button", { name: "Open Cart" }).click();
-  await expect(page.getByRole("heading", { name: "Snippets" })).toBeVisible();
+  await openSnippets(page, projectName);
 
   const queue = page.getByTestId("probe-queue");
   await expect(queue).toBeVisible();
@@ -268,8 +211,7 @@ test("a probe waiting for an answer can be answered from the queue", async ({
   await expect(modal).toBeVisible();
   await expect(modal).toContainText("Answer this probe");
 
-  await modal.getByLabel("Intent", { exact: true }).fill("records the storage decision");
-  await modal.getByLabel("Rationale", { exact: true }).fill("it is what the project is about");
+  await answerProbe(modal);
   await modal.getByRole("button", { name: "Submit answer" }).click();
   await expect(modal).toHaveCount(0);
 
@@ -285,9 +227,5 @@ test("a probe waiting for an answer can be answered from the queue", async ({
     "a settled probe is no longer pending"
   ).not.toContain(probeId);
 
-  const scored = await scoredSnippets(core, project.id);
-  const probed = scored.find((snippet) => snippet.id === snippetId);
-  expect(probed, "the probed snippet should still be scored").toBeDefined();
-  expect(probed!.score).toBeGreaterThanOrEqual(0.9);
-  expect(probed!.score_details.probe_floor).toBe(0.9);
+  await expectFloored(core, project.id, snippetId);
 });

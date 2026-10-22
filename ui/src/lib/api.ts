@@ -72,9 +72,8 @@ export interface Snippet {
  * land, and the UI says so rather than presenting them as measurements.
  *
  * `probe_floor` is the relevance floor a probe has put under the snippet, or
- * `null` when no probe has answered for it. It is reported beside the
- * signals rather than folded into them, so the UI can show that the ranking
- * was overruled by the user and not by the scorer.
+ * `null` when none has. It is reported beside the signals rather than folded
+ * into them, so the UI can show the ranking was overruled by the user.
  */
 export interface ScoreDetails {
   score: number;
@@ -106,10 +105,9 @@ export interface CartItem {
 /**
  * A probe as the API renders it.
  *
- * `questions` and `answers` are arrays on the wire, and are stored as text.
  * `floor` is the relevance floor the probe's status bought: 0.90 for a
- * settled probe, 0.70 for a provisional one, and `null` for a probe that has
- * not been answered -- a question the user has not answered is not evidence.
+ * settled probe, 0.70 for a provisional one, and `null` for an unanswered
+ * one -- a question the user has not answered is not evidence.
  */
 export interface Probe {
   id: string;
@@ -143,14 +141,7 @@ export interface NewProbe {
 }
 
 /** The body `PATCH /v1/probes/:id` accepts. Every field is optional. */
-export interface ProbeAnswer {
-  answers?: string[];
-  status?: string;
-  intent?: string;
-  rationale?: string;
-  impact?: string;
-  confidence?: string;
-}
+export type ProbeAnswer = Partial<NewProbe>;
 
 /**
  * A failure the API reported, or a failure to reach it at all.
@@ -312,16 +303,12 @@ export function removeFromCart(projectId: string, itemId: string): Promise<void>
 }
 
 /**
- * The probes in a project that have not been settled.
- *
- * The project is named in the query rather than filtered by the client: the
- * queue belongs to a project, and asking the server for one project's queue
- * is both smaller and the same rule the server applies everywhere else.
+ * The probes in a project that have not been settled. The project is named in
+ * the query rather than filtered by the client, so the rule lives on the
+ * server.
  */
 export function getPendingProbes(projectId: string): Promise<Probe[]> {
-  return request<Probe[]>(
-    `/v1/probes/pending?project_id=${encodeURIComponent(projectId)}`
-  );
+  return request<Probe[]>(`/v1/probes/pending?project_id=${encodeURIComponent(projectId)}`);
 }
 
 /** Raise a probe about a snippet. */

@@ -43,14 +43,9 @@ test("adds a snippet to the cart and removes it", async ({ page }) => {
 
   // The high-scoring snippets start checked, so the selection is put into a
   // known state first: exactly one snippet, chosen here, and nothing else.
-  // The button below adds everything that is ticked, so a leftover default
-  // check would make the cart hold more than the one item this test is
-  // about.
-  //
-  // The snippet is chosen from the ones the scorer is not dismissing. A
+  // The snippet is chosen from the ones the scorer is not dismissing: a
   // snippet in the low band is the one the UI now asks about before it
-  // accepts it -- the probe flow -- and this test is about the cart, so it
-  // ticks one the scorer is happy with.
+  // accepts it, and this test is about the cart.
   const bands = await page.getByTestId("score-badge").evaluateAll((nodes) =>
     nodes.map((node) => (node as HTMLElement).dataset.band)
   );

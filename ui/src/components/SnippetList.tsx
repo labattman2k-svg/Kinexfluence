@@ -64,8 +64,8 @@ export interface ScoreBands {
  *
  * A snippet the user has floored is left out of the calculation. The floor
  * is the user's override of the scorer, not another opinion from it, and
- * letting a floored 0.90 into the calibration would push the green edge up
- * to its nominal 0.70 and paint every other snippet in the list grey.
+ * letting a floored 0.90 into the calibration would push the green edge to
+ * its nominal 0.70 and paint every other snippet in the list grey.
  */
 export function scoreBands(snippets: ScoredSnippet[]): ScoreBands {
   const unfloored = snippets.filter((s) => s.score_details.probe_floor === null);
@@ -177,10 +177,9 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   /**
    * Apply a fresh list of scored snippets.
    *
-   * The scores, the cleared error, and the auto-selection, which are all
-   * decided together: the high band starts checked, so a user who trusts
-   * the score has only to confirm rather than pick. It is a default, not a
-   * decision: the cart still waits for the button below.
+   * The scores, the cleared error, and the auto-selection are decided
+   * together: the high band starts checked, so a user who trusts the score
+   * has only to confirm rather than pick.
    */
   const applyScored = (found: ScoredSnippet[]) => {
     setSnippets(found);
@@ -212,11 +211,8 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   }, [projectId]);
 
   /**
-   * Re-read the scores.
-   *
-   * A probe puts a floor under a score, so the scores have to be read again
-   * once one is answered -- otherwise the list would keep showing the number
-   * the scorer gave for a snippet the user has since overruled.
+   * Re-read the scores: a probe puts a floor under one, so the list would
+   * otherwise keep showing the number the scorer gave.
    */
   const reloadScored = async () => {
     try {
@@ -337,11 +333,9 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   };
 
   /**
-   * The text of the snippet a pending probe is about.
-   *
-   * A probe names an item rather than a snippet, and a probe puts the item
-   * in the cart, so the cart already holds the text. Showing it is what
-   * makes the queue worth reading.
+   * The text of the snippet a pending probe is about: a probe names an item
+   * rather than a snippet, and puts the item in the cart, so the cart holds
+   * the text.
    */
   const queueText = (probe: Probe) => {
     const item = cartItems.find((entry) => entry.item_id === probe.item_id);
@@ -350,11 +344,10 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   };
 
   /**
-   * What happens once a probe has been answered.
-   *
-   * The scores are read again because the floor has moved one of them, the
-   * cart is reloaded because the answered item is now in it, and the queue is
-   * fetched again because the probe is no longer waiting.
+   * What happens once a probe has been answered: the scores are read again
+   * because the floor has moved one of them, the cart is reloaded because the
+   * answered item is now in it, and the queue is fetched again because the
+   * probe is no longer waiting.
    */
   const handleProbeAnswered = () => {
     setProbeTarget(null);

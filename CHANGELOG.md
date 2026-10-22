@@ -144,27 +144,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The probe modal (`ui/src/components/ProbeModal.tsx`): the four questions a
   probe asks -- intent, impact, rationale, and confidence -- put to the user
   when the scorer says a snippet does not matter and the user says it does.
-  The answers map one to one onto the backend's `intent`, `impact`,
-  `rationale`, and `confidence` columns, so the mechanism needed no new
-  schema
+  The answers map onto the backend's `intent`, `impact`, `rationale`, and
+  `confidence` columns, so the mechanism needed no new schema
 - API client methods: `getPendingProbes`, `submitProbe`, and `answerProbe`
-- Ticking a snippet the scorer puts in the low band opens the probe modal
-  instead of selecting it. A snippet the scorer thinks is worth nothing is
-  the one the user is most likely to be right about, and the probe is how
-  that disagreement is recorded. A tick that is not a disagreement is left
-  alone
-- The probe queue: the probes in the project that are still waiting for an
-  answer, each with the snippet it is about. Answering one settles it and
-  puts the floor under that snippet
-- The score breakdown shows the probe floor beside the signals when there is
-  one, so a reader can see that the ranking was overruled by the user and
-  not by the scorer
+- Ticking a snippet in the low band opens the probe modal instead of
+  selecting it: a snippet the scorer thinks is worth nothing is the one the
+  user is most likely to be right about
+- The probe queue: the probes in the project still waiting for an answer.
+  Answering one settles it and floors that snippet
+- The score breakdown shows the probe floor beside the signals
 - Probe E2E test (`ui/tests/e2e/probe-flow.spec.ts`): probes a low-scoring
   snippet and checks the floor reaches the score the server computes, then
-  answers a probe from the queue and checks the same. The floor is asserted
-  against the API rather than against the badge, because a badge that said
-  0.90 while the server scored the snippet 0.08 would pass a visual test
-  and fail the user
+  answers a probe from the queue and checks the same
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
