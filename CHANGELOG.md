@@ -205,6 +205,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scorer rather than another opinion from it, and letting a floored 0.90 into
   the calibration would push the green edge up to its nominal 0.70 and paint
   every other snippet in the list grey
+- The licence is proprietary, not AGPL-3.0-or-later. `LICENSE` replaces the
+  copyleft terms with a non-commercial evaluation licence: you may run the
+  software and use its output, and nothing else. The workspace's `license`
+  field is now `LicenseRef-Proprietary`, every crate sets `publish = false`
+  so the source can never reach a public registry, and `deny.toml` no longer
+  tolerates an AGPL dependency. The versions already published under AGPL
+  keep their AGPL grant; see section 6 of the `LICENSE` file.
 
 ### Fixed
 - `add_to_cart` and `remove_from_cart` now write to `event_log`, which
@@ -229,3 +236,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Duplicate ADR numbering: the SQLCipher deferral ADR is now 0006
 - `docs/STANDARDS.md` section 10 stated the coverage gate as PR #4+; it is
   PR #6, matching section 1 and `docs/QUALITY.md`
+- The `snippets list` and `cart list` tables had their column headers
+  swapped: the kind column was headed `TYPE` and the text column was headed
+  `KIND`, so a reader saw the word `KIND` over the snippet's text. They now
+  read `KIND` and `TEXT`, which is what the columns hold
+- The `cart add|list|remove|commit` commands now take a project by id or by
+  slug, as the changelog claimed they did and as `project show` and
+  `project export` already did. They took only a UUID before, and a UUID is
+  not a thing anyone types. The lookup lives in `project::resolve_id`, next
+  to the `resolve` it is derived from, because the CLI cannot name a
+  `SqlitePool`

@@ -10,9 +10,20 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+# Proprietary, not open source. See LICENSE. `LicenseRef-Proprietary` is the
+# SPDX form for a licence that is not on the SPDX list; crates.io rejects
+# crates whose licence is not a listed SPDX identifier, which is the correct
+# outcome for this project.
+license = "LicenseRef-Proprietary"
 authors = ["Kinexfluence"]
 rust-version = "1.78"
+# Every crate in this workspace also sets `publish = false` in its own
+# manifest, and it must stay that way. The source is proprietary and must
+# never reach a public registry. The setting is repeated per crate rather
+# than inherited from here because `publish` only became an inheritable
+# workspace key in a Cargo release newer than the `rust-version` above, and
+# an inherited key that old a toolchain cannot parse would be a broken
+# build rather than a safe default.
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

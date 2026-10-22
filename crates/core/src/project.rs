@@ -219,6 +219,19 @@ pub async fn resolve(pool: &SqlitePool, id_or_slug: &str) -> Result<Option<Proje
     }
 }
 
+/// Find a project's id by id or slug.
+///
+/// The cart tables store a project id, so a command that names a project the
+/// way the user names it has to reduce the name to an id first. This is
+/// [`resolve`] reduced to the one value the caller needs, and it lives here
+/// for the same reason [`resolve`] does: the CLI cannot name a `SqlitePool`.
+pub async fn resolve_id(
+    pool: &SqlitePool,
+    id_or_slug: &str,
+) -> Result<Option<String>, ProjectError> {
+    Ok(resolve(pool, id_or_slug).await?.map(|project| project.id))
+}
+
 /// Change a project's status, and record the transition.
 ///
 /// `updated_at` is set from `CURRENT_TIMESTAMP` in the statement rather than
