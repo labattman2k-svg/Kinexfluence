@@ -70,6 +70,11 @@ export interface Snippet {
  * the S2-S7 signals: `code`, `marker`, `entity`, `novelty`, `position`, and
  * `provenance`. `novelty` and `provenance` are stubs at 0.5 until embeddings
  * land, and the UI says so rather than presenting them as measurements.
+ *
+ * `probe_floor` is the relevance floor a probe has put under the snippet, or
+ * `null` when no probe has answered for it. It is reported beside the
+ * signals rather than folded into them, so the UI can show that the ranking
+ * was overruled by the user and not by the scorer.
  */
 export interface ScoreDetails {
   score: number;
@@ -79,6 +84,7 @@ export interface ScoreDetails {
   novelty: number;
   position: number;
   provenance: number;
+  probe_floor: number | null;
 }
 
 /** A snippet with the score the server gave it, and the reasons behind it. */
@@ -95,6 +101,55 @@ export interface CartItem {
   title: string | null;
   text: string;
   added_at: string;
+}
+
+/**
+ * A probe as the API renders it.
+ *
+ * `questions` and `answers` are arrays on the wire, and are stored as text.
+ * `floor` is the relevance floor the probe's status bought: 0.90 for a
+ * settled probe, 0.70 for a provisional one, and `null` for a probe that has
+ * not been answered -- a question the user has not answered is not evidence.
+ */
+export interface Probe {
+  id: string;
+  item_id: string;
+  project_id: string;
+  trigger: string;
+  questions: string[];
+  answers: string[];
+  intent: string | null;
+  rationale: string | null;
+  impact: string | null;
+  confidence: string | null;
+  status: string | null;
+  created_at: string;
+  floor: number | null;
+}
+
+/** The body `POST /v1/probes` accepts. */
+export interface NewProbe {
+  snippet_id?: string;
+  item_id?: string;
+  project_id: string;
+  trigger: string;
+  questions: string[];
+  answers: string[];
+  intent?: string;
+  rationale?: string;
+  impact?: string;
+  confidence?: string;
+  status?: string;
+}
+
+/** The body `PATCH /v1/probes/:id` accepts. Every field is optional. */
+export interface ProbeAnswer {
+  answers?: string[];
+  status?: string;
+  intent?: string;
+  rationale?: string;
+  impact?: string;
+  confidence?: string;
 }
 
 /**
@@ -254,4 +309,33 @@ export function removeFromCart(projectId: string, itemId: string): Promise<void>
     `/v1/projects/${encodeURIComponent(projectId)}/cart/${encodeURIComponent(itemId)}`,
     { method: "DELETE" }
   );
+}
+
+/**
+ * The probes in a project that have not been settled.
+ *
+ * The project is named in the query rather than filtered by the client: the
+ * queue belongs to a project, and asking the server for one project's queue
+ * is both smaller and the same rule the server applies everywhere else.
+ */
+export function getPendingProbes(projectId: string): Promise<Probe[]> {
+  return request<Probe[]>(
+    `/v1/probes/pending?project_id=${encodeURIComponent(projectId)}`
+  );
+}
+
+/** Raise a probe about a snippet. */
+export function submitProbe(data: NewProbe): Promise<Probe> {
+  return request<Probe>("/v1/probes", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Answer a probe, which is what actually moves the item. */
+export function answerProbe(id: string, data: ProbeAnswer): Promise<Probe> {
+  return request<Probe>(`/v1/probes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }

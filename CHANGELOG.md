@@ -141,6 +141,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually moves the item. A status the engine does not know is refused
   rather than stored, because a typo in `probe.status` would otherwise make
   the floor silently never apply
+- The probe modal (`ui/src/components/ProbeModal.tsx`): the four questions a
+  probe asks -- intent, impact, rationale, and confidence -- put to the user
+  when the scorer says a snippet does not matter and the user says it does.
+  The answers map one to one onto the backend's `intent`, `impact`,
+  `rationale`, and `confidence` columns, so the mechanism needed no new
+  schema
+- API client methods: `getPendingProbes`, `submitProbe`, and `answerProbe`
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
