@@ -221,3 +221,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Duplicate ADR numbering: the SQLCipher deferral ADR is now 0006
 - `docs/STANDARDS.md` section 10 stated the coverage gate as PR #4+; it is
   PR #6, matching section 1 and `docs/QUALITY.md`
+- The `snippets list` and `cart list` tables had their column headers
+  swapped: the kind column was headed `TYPE` and the text column was headed
+  `KIND`, so a reader saw the word `KIND` over the snippet's text. They now
+  read `KIND` and `TEXT`, which is what the columns hold
+- The `cart add|list|remove|commit` commands now take a project by id or by
+  slug, as the changelog claimed they did and as `project show` and
+  `project export` already did. They took only a UUID before, and a UUID is
+  not a thing anyone types. The lookup lives in `project::resolve_id`, next
+  to the `resolve` it is derived from, because the CLI cannot name a
+  `SqlitePool`

@@ -6,8 +6,8 @@
 //! only confirm the mock.
 
 use kfx_core::project::{
-    create, find_by_slug, get, list, list_by_status, resolve, update_status, CreateProject,
-    ProjectError,
+    create, find_by_slug, get, list, list_by_status, resolve, resolve_id, update_status,
+    CreateProject, ProjectError,
 };
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
@@ -316,6 +316,31 @@ async fn resolve_finds_by_id_or_slug(pool: SqlitePool) -> Result<(), Box<dyn std
         resolve(&pool, "no-such-thing").await?.is_none(),
         "an unknown value resolves to nothing rather than erroring"
     );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn resolve_id_returns_the_id_behind_a_slug(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let created = create(&pool, input("Alpha Project")).await?;
+
+    // The same two paths as `resolve`, but reduced to the one value a caller
+    // that stores ids needs.
+    assert_eq!(
+        resolve_id(&pool, &created.id).await?.as_deref(),
+        Some(created.id.as_str())
+    );
+    assert_eq!(
+        resolve_id(&pool, &created.slug).await?.as_deref(),
+        Some(created.id.as_str())
+    );
+
+    // A name that is neither resolves to nothing, so the caller can turn it
+    // into a "not found" rather than passing it on to a query that will
+    // find nothing anyway.
+    assert_eq!(resolve_id(&pool, "no-such-thing").await?, None);
 
     Ok(())
 }
