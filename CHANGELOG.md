@@ -165,6 +165,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /v1/projects/:id_or_slug/export` returns the pack as `text/markdown`,
   and `kinexfluence project export <id_or_slug> --out <file>` writes it to a
   file, or to standard output when no file is named
+- The commit flow: `commit_cart` (`crates/core/src/cart.rs`) moves every item
+  in a project's cart to `status = 'committed'` with a `committed_at`, and
+  writes an `event_log` row for each one. `POST /v1/projects/:id/commit`
+  answers with `{"committed": N}`, and `kinexfluence cart commit --project
+  <project>` does the same from the command line. The count is in the answer
+  because a commit of an empty cart is a legitimate zero, and it must not
+  look like a failure
+- A "Commit to Project" button in the cart sidebar, which empties the cart
+  and says how many items moved
+- Commit E2E test (`ui/tests/e2e/commit-flow.spec.ts`): fills the cart,
+  commits it, and checks the export holds what was in the cart
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
