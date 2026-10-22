@@ -224,3 +224,128 @@ async fn add_to_cart_rejects_unknown_project(
     );
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// commit
+// ---------------------------------------------------------------------------
+
+/// The membership row for an item in a project: its status and when it was
+/// committed.
+async fn membership(
+    pool: &SqlitePool,
+    project_id: &str,
+    item_id: &str,
+) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT status, committed_at FROM item_project WHERE project_id = ? AND item_id = ?",
+    )
+    .bind(project_id)
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_cart_moves_the_cart_into_the_project(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let first = seed_snippet(&pool).await?;
+    let second = seed_snippet(&pool).await?;
+    let project_id = seed_project(&pool, "Alpha Project").await?;
+
+    let first_item = cart::add_to_cart(&pool, &project_id, &first).await?;
+    let second_item = cart::add_to_cart(&pool, &project_id, &second).await?;
+
+    let committed = cart::commit_cart(&pool, &project_id).await?;
+
+    assert_eq!(committed, 2, "both items should be committed");
+    assert_eq!(
+        cart_len(&pool, &project_id).await?,
+        0,
+        "a committed item is no longer in the cart"
+    );
+    assert_eq!(
+        cart::list_cart(&pool, &project_id).await?.len(),
+        0,
+        "and it is no longer in the cart listing"
+    );
+
+    for item_id in [&first_item, &second_item] {
+        let row = membership(&pool, &project_id, item_id).await?;
+        assert_eq!(
+            row.as_ref().map(|(status, _)| status.as_str()),
+            Some("committed"),
+            "the item's status should be committed"
+        );
+        assert!(
+            row.as_ref().and_then(|(_, at)| at.as_ref()).is_some(),
+            "a committed item should carry the moment it was committed"
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_cart_leaves_already_committed_items_alone(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snippet_id = seed_snippet(&pool).await?;
+    let project_id = seed_project(&pool, "Alpha Project").await?;
+
+    cart::add_to_cart(&pool, &project_id, &snippet_id).await?;
+    assert_eq!(cart::commit_cart(&pool, &project_id).await?, 1);
+
+    // A second commit has nothing left to commit, and says so rather than
+    // counting the same item twice.
+    assert_eq!(
+        cart::commit_cart(&pool, &project_id).await?,
+        0,
+        "committing twice should not commit the same item twice"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_cart_writes_an_event_log_row(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snippet_id = seed_snippet(&pool).await?;
+    let project_id = seed_project(&pool, "Alpha Project").await?;
+
+    let item_id = cart::add_to_cart(&pool, &project_id, &snippet_id).await?;
+    cart::commit_cart(&pool, &project_id).await?;
+
+    let logged: Option<(String, String, String, String)> = sqlx::query_as(
+        "SELECT entity_type, entity_id, action, actor
+         FROM event_log WHERE entity_type = 'item_project' AND entity_id = ?",
+    )
+    .bind(&item_id)
+    .fetch_optional(&pool)
+    .await?;
+
+    let (entity_type, entity_id, action, actor) =
+        logged.expect("a commit must leave a row in the event log");
+    assert_eq!(entity_type, "item_project");
+    assert_eq!(entity_id, item_id);
+    assert_eq!(action, "committed");
+    assert_eq!(actor, "user");
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_cart_rejects_unknown_project(
+    pool: SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let error = cart::commit_cart(&pool, "no-such-project")
+        .await
+        .expect_err("a project that does not exist cannot be committed to");
+
+    assert!(
+        matches!(error, CartError::ProjectNotFound(_)),
+        "got {error:?}"
+    );
+    Ok(())
+}

@@ -216,6 +216,7 @@ pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
         .route("/v1/snippets", get(list_snippets))
         .route("/v1/projects/:id/cart", get(list_cart).post(add_to_cart))
         .route("/v1/projects/:id/cart/:item_id", delete(remove_from_cart))
+        .route("/v1/projects/:id/commit", post(commit_cart))
         .route("/v1/probes", post(submit_probe))
         .route("/v1/probes/pending", get(list_pending_probes))
         .route("/v1/probes/:id", patch(answer_probe))
@@ -321,6 +322,26 @@ async fn list_snippets(
 #[derive(Debug, Deserialize)]
 pub struct AddToCartRequest {
     pub snippet_ids: Vec<String>,
+}
+
+/// The body a commit answers with.
+#[derive(Debug, Serialize)]
+pub struct CommitResponse {
+    /// How many items moved out of the cart and into the project's context.
+    pub committed: usize,
+}
+
+/// Commit a project's cart: every item in it becomes project context.
+///
+/// The count comes back because the caller needs to know what happened: a
+/// commit of an empty cart is a legitimate zero, and a client that cannot
+/// tell it from a commit that failed would have to guess.
+async fn commit_cart(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+) -> Result<Json<CommitResponse>, ApiError> {
+    let committed = cart::commit_cart(&pool, &id).await?;
+    Ok(Json(CommitResponse { committed }))
 }
 
 async fn add_to_cart(

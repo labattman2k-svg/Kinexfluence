@@ -303,6 +303,20 @@ export function removeFromCart(projectId: string, itemId: string): Promise<void>
 }
 
 /**
+ * Commit a project's cart: every item in it becomes project context.
+ *
+ * The count comes back so the UI can say what happened. A commit of an
+ * empty cart is a legitimate zero, not a failure, and the two must not look
+ * alike.
+ */
+export function commitCart(projectId: string): Promise<{ committed: number }> {
+  return request<{ committed: number }>(
+    `/v1/projects/${encodeURIComponent(projectId)}/commit`,
+    { method: "POST" }
+  );
+}
+
+/**
  * The probes in a project that have not been settled. The project is named in
  * the query rather than filtered by the client, so the rule lives on the
  * server.

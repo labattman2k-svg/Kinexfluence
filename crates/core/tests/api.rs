@@ -635,6 +635,118 @@ async fn list_scored_snippets_returns_sorted_by_score(pool: SqlitePool) {
 }
 
 // ---------------------------------------------------------------------------
+// commit
+// ---------------------------------------------------------------------------
+
+/// Seed a snippet through the full chain and return its id.
+async fn seed_snippet(pool: &SqlitePool, text: &str) -> String {
+    sqlx::query("INSERT OR IGNORE INTO source (id, name) VALUES ('source-1', 'source-1')")
+        .execute(pool)
+        .await
+        .unwrap();
+    let conversation_id = uuid::Uuid::now_v7().to_string();
+    let message_id = uuid::Uuid::now_v7().to_string();
+    sqlx::query("INSERT INTO conversation (id, source_id, title) VALUES (?, 'source-1', 'T')")
+        .bind(&conversation_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO message (id, conversation_id, role, content_json) VALUES (?, ?, 'user', '{}')",
+    )
+    .bind(&message_id)
+    .bind(&conversation_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let snippet_id = uuid::Uuid::now_v7().to_string();
+    sqlx::query(
+        "INSERT INTO snippet (id, message_id, block_index, kind, text, hash) VALUES (?, ?, 0, 'text', ?, ?)",
+    )
+    .bind(&snippet_id)
+    .bind(&message_id)
+    .bind(text)
+    .bind(format!("hash-{snippet_id}"))
+    .execute(pool)
+    .await
+    .unwrap();
+    snippet_id
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_returns_the_number_committed(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = seed_snippet(&pool, "worth keeping").await;
+
+    let (status, _) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/commit"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "the commit should succeed: {body}");
+    assert_eq!(body["committed"], 1, "the count should come back: {body}");
+
+    // The cart is empty afterwards, which is the whole point of the commit.
+    let (_, cart) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/cart"),
+        None,
+    )
+    .await;
+    assert_eq!(cart, json!([]), "a committed item is no longer in the cart");
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_on_an_empty_cart_is_a_zero(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/commit"),
+        None,
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an empty cart is not an error: {body}"
+    );
+    assert_eq!(body["committed"], 0);
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn commit_returns_404_for_a_missing_project(pool: SqlitePool) {
+    let (status, body) = call(
+        &pool,
+        Method::POST,
+        "/v1/projects/no-such-project/commit",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found");
+}
+
+// ---------------------------------------------------------------------------
 // probes
 // ---------------------------------------------------------------------------
 

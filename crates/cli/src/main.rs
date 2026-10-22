@@ -171,6 +171,13 @@ enum CartCmd {
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
+    /// Commit a project's cart: every item in it becomes project context.
+    Commit {
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: String,
+    },
 }
 
 /// Why a command failed, and the exit code that carries the meaning.
@@ -632,6 +639,7 @@ async fn cart(cmd: CartCmd) -> Result<(), CliError> {
             project,
             db,
         } => cart_remove(&item_id, &project, &db).await,
+        CartCmd::Commit { project, db } => cart_commit(&project, &db).await,
     }
 }
 
@@ -714,6 +722,26 @@ async fn cart_remove(item_id: &str, project_id: &str, db: &str) -> Result<(), Cl
         .map_err(cart_error)?;
 
     eprintln!("removed item {} from cart", item_id);
+    Ok(())
+}
+
+async fn cart_commit(project_id: &str, db: &str) -> Result<(), CliError> {
+    let path = shellexpand(db);
+    let config = storage_config(&path);
+
+    let pool = kfx_core::storage::open(&path, &config)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+    kfx_core::storage::migrate(&pool)
+        .await
+        .map_err(|error| CliError::Database(error.to_string()))?;
+
+    let committed = kfx_core::cart::commit_cart(&pool, project_id)
+        .await
+        .map_err(cart_error)?;
+
+    println!("{}", committed);
+    eprintln!("committed {} item(s) to project", committed);
     Ok(())
 }
 
