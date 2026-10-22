@@ -27,8 +27,17 @@ pub enum CartError {
     Database(#[from] sqlx::Error),
 }
 
-/// The entity type recorded in `event_log` for a committed item.
+/// The entity type recorded in `event_log` for a cart membership.
 const ENTITY_ITEM_PROJECT: &str = "item_project";
+
+/// The action recorded when a snippet joins a project's cart.
+const ACTION_CREATED: &str = "created";
+
+/// The action recorded when a snippet leaves a project's cart.
+const ACTION_DELETED: &str = "deleted";
+
+/// The action recorded when a cart membership becomes project context.
+const ACTION_COMMITTED: &str = "committed";
 
 /// Get or create an item from a snippet.
 async fn get_or_create_item(pool: &SqlitePool, snippet_id: &str) -> Result<String, CartError> {
@@ -128,7 +137,11 @@ pub async fn add_to_cart(
         return Ok(item_id);
     }
 
-    // Add to cart
+    // Add to cart. The membership and the row that records it are written
+    // together, so the log cannot claim a membership that is not there, and
+    // the membership cannot appear without being logged.
+    let mut tx = pool.begin().await?;
+
     sqlx::query(
         r#"
         INSERT INTO item_project (item_id, project_id, status, added_at)
@@ -138,8 +151,12 @@ pub async fn add_to_cart(
     .bind(&item_id)
     .bind(project_id)
     .bind(Utc::now().to_rfc3339())
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    log_membership(&mut tx, &item_id, project_id, ACTION_CREATED).await?;
+
+    tx.commit().await?;
 
     Ok(item_id)
 }
@@ -174,17 +191,28 @@ pub async fn remove_from_cart(
     project_id: &str,
     item_id: &str,
 ) -> Result<(), CartError> {
+    // The delete and the row that records it are written together: the log
+    // says the membership is gone, and it must not be able to say that while
+    // the membership is still there.
+    let mut tx = pool.begin().await?;
+
     let result = sqlx::query(
         "DELETE FROM item_project WHERE item_id = ? AND project_id = ? AND status = 'cart'",
     )
     .bind(item_id)
     .bind(project_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
+    // Nothing was removed, so nothing happened and nothing is logged. The
+    // transaction is dropped here, which rolls it back.
     if result.rows_affected() == 0 {
         return Err(CartError::Database(sqlx::Error::RowNotFound));
     }
+
+    log_membership(&mut tx, item_id, project_id, ACTION_DELETED).await?;
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -232,22 +260,25 @@ pub async fn commit_cart(pool: &SqlitePool, project_id: &str) -> Result<usize, C
         .execute(&mut *tx)
         .await?;
 
-        log_commit(&mut tx, item_id, project_id).await?;
+        log_membership(&mut tx, item_id, project_id, ACTION_COMMITTED).await?;
     }
 
     tx.commit().await?;
     Ok(item_ids.len())
 }
 
-/// Write one `event_log` row for a committed item.
+/// Write one `event_log` row for a change to a cart membership.
 ///
 /// The standard names `item_project` among the entities whose mutations must
-/// be reconstructable, and a commit changes one: the item's status, and the
-/// moment it changed.
-async fn log_commit(
+/// be reconstructable, and a membership changes in three ways: it is added,
+/// it is removed, and it is committed into the project's context. All three
+/// are written here, so the rule is kept in one place rather than repeated
+/// at each call site.
+async fn log_membership(
     tx: &mut Transaction<'_, Sqlite>,
     item_id: &str,
     project_id: &str,
+    action: &str,
 ) -> Result<(), CartError> {
     sqlx::query(
         "INSERT INTO event_log (id, entity_type, entity_id, action, actor, payload_json)
@@ -256,7 +287,7 @@ async fn log_commit(
     .bind(Uuid::now_v7().to_string())
     .bind(ENTITY_ITEM_PROJECT)
     .bind(item_id)
-    .bind("committed")
+    .bind(action)
     .bind(ACTOR_USER)
     .bind(serde_json::json!({ "project_id": project_id }).to_string())
     .execute(&mut **tx)

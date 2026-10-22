@@ -319,7 +319,8 @@ async fn commit_cart_writes_an_event_log_row(
 
     let logged: Option<(String, String, String, String)> = sqlx::query_as(
         "SELECT entity_type, entity_id, action, actor
-         FROM event_log WHERE entity_type = 'item_project' AND entity_id = ?",
+         FROM event_log
+         WHERE entity_type = 'item_project' AND entity_id = ? AND action = 'committed'",
     )
     .bind(&item_id)
     .fetch_optional(&pool)
