@@ -288,3 +288,145 @@ async fn cart_add_and_list() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// Run a `cart` subcommand against a temp database.
+fn cart_command(db: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::cargo_bin("kinexfluence").expect("the binary should build");
+    cmd.arg("cart");
+    cmd.args(args);
+    cmd.args(["--db", &db.to_string_lossy()]);
+    cmd
+}
+
+/// Import the fixture and create a project, and return the project's slug.
+///
+/// The slug is the point: it is what a user types.
+async fn project_with_a_slug(db: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    import_command(db).assert().success();
+
+    project_command(
+        db,
+        &[
+            "create",
+            "Test Project",
+            "--brief",
+            "Testing the cart by slug",
+        ],
+    )
+    .assert()
+    .success();
+
+    Ok("test-project".to_owned())
+}
+
+/// The first snippet's id, read from the database.
+async fn a_snippet_id(db: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let pool = SqlitePool::connect(&format!("sqlite://{}", db.display())).await?;
+    let snippet_id: String = sqlx::query_scalar("SELECT id FROM snippet LIMIT 1")
+        .fetch_one(&pool)
+        .await?;
+    pool.close().await;
+    Ok(snippet_id)
+}
+
+/// The cart takes a project the way the user names it.
+///
+/// A UUID is not a thing anyone types, and every other project-taking
+/// command already accepted a slug. The cart was the one that asked for the
+/// id, so this is the test that keeps it from going back.
+#[tokio::test]
+async fn cart_takes_a_project_by_slug() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("cart-slug.db");
+
+    let slug = project_with_a_slug(&db_path).await?;
+    let snippet_id = a_snippet_id(&db_path).await?;
+
+    cart_command(&db_path, &["add", &snippet_id, "--project", &slug])
+        .assert()
+        .success();
+
+    let listed = cart_command(&db_path, &["list", "--project", &slug]).output()?;
+    assert!(listed.status.success());
+    let table = String::from_utf8(listed.stdout)?;
+    assert!(!table.is_empty(), "the cart should hold the item:\n{table}");
+
+    // And the commit, which is the step that makes the item part of the
+    // project's context.
+    let committed = cart_command(&db_path, &["commit", "--project", &slug]).output()?;
+    assert!(committed.status.success());
+    assert_eq!(
+        String::from_utf8(committed.stdout)?.trim(),
+        "1",
+        "one item should have been committed"
+    );
+
+    Ok(())
+}
+
+/// A project that does not exist is still a not-found, not a silent zero.
+///
+/// The resolution the cart does now could have swallowed this: a slug that
+/// matches nothing must not look like an empty cart.
+#[tokio::test]
+async fn cart_rejects_an_unknown_project() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("cart-unknown.db");
+
+    import_command(&db_path).assert().success();
+
+    cart_command(&db_path, &["list", "--project", "no-such-project"])
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(predicate::str::contains("not found"));
+
+    Ok(())
+}
+
+/// The two tables name the columns they hold.
+///
+/// The kind column was headed `TYPE` and the text column was headed `KIND`,
+/// so a reader saw the word `KIND` over the snippet's text.
+#[tokio::test]
+async fn the_listing_tables_label_their_columns() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("headers.db");
+
+    import_command(&db_path).assert().success();
+
+    let mut cmd = Command::cargo_bin("kinexfluence")?;
+    cmd.args(["snippets", "list", "--db", &db_path.to_string_lossy()]);
+    let output = cmd.output()?;
+    assert!(output.status.success());
+    let table = String::from_utf8(output.stdout)?;
+
+    let header = table.lines().next().expect("there should be a header");
+    assert!(
+        header.contains("KIND"),
+        "the header should name the kind column: {header:?}"
+    );
+    assert!(header.contains("TEXT"), "and the text column: {header:?}");
+
+    // The cart table had the same two headers, swapped the same way.
+    let slug = project_with_a_slug(&db_path).await?;
+    let snippet_id = a_snippet_id(&db_path).await?;
+    cart_command(&db_path, &["add", &snippet_id, "--project", &slug])
+        .assert()
+        .success();
+
+    let listed = cart_command(&db_path, &["list", "--project", &slug]).output()?;
+    assert!(listed.status.success());
+    let header = String::from_utf8(listed.stdout)?
+        .lines()
+        .next()
+        .expect("there should be a header")
+        .to_owned();
+    assert!(
+        header.contains("KIND"),
+        "the header should name the kind column: {header:?}"
+    );
+    assert!(header.contains("TEXT"), "and the text column: {header:?}");
+
+    Ok(())
+}

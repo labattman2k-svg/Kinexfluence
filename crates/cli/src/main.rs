@@ -151,14 +151,16 @@ enum CartCmd {
     /// Add a snippet to a project's cart.
     Add {
         snippet_id: String,
-        #[arg(long)]
+        /// The project, by id or by slug.
+        #[arg(long, value_name = "PROJECT")]
         project: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
     /// List items in a project's cart.
     List {
-        #[arg(long)]
+        /// The project, by id or by slug.
+        #[arg(long, value_name = "PROJECT")]
         project: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
@@ -166,14 +168,16 @@ enum CartCmd {
     /// Remove an item from a project's cart.
     Remove {
         item_id: String,
-        #[arg(long)]
+        /// The project, by id or by slug.
+        #[arg(long, value_name = "PROJECT")]
         project: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
     },
     /// Commit a project's cart: every item in it becomes project context.
     Commit {
-        #[arg(long)]
+        /// The project, by id or by slug.
+        #[arg(long, value_name = "PROJECT")]
         project: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: String,
@@ -609,7 +613,7 @@ async fn snippets_list(limit: i64, offset: i64, db: &str) -> Result<(), CliError
         return Ok(());
     }
 
-    println!("{:<38} {:<8} KIND", "ID", "TYPE");
+    println!("{:<38} {:<8} TEXT", "ID", "KIND");
     for snippet in &snippets {
         println!(
             "{:<38} {:<8} {}",
@@ -653,7 +657,7 @@ fn cart_error(error: kfx_core::cart::CartError) -> CliError {
     }
 }
 
-async fn cart_add(snippet_id: &str, project_id: &str, db: &str) -> Result<(), CliError> {
+async fn cart_add(snippet_id: &str, project: &str, db: &str) -> Result<(), CliError> {
     let path = shellexpand(db);
     let config = storage_config(&path);
 
@@ -664,7 +668,13 @@ async fn cart_add(snippet_id: &str, project_id: &str, db: &str) -> Result<(), Cl
         .await
         .map_err(|error| CliError::Database(error.to_string()))?;
 
-    let item_id = kfx_core::cart::add_to_cart(&pool, project_id, snippet_id)
+    // The cart stores a project id; the user names a project by id or by slug.
+    let project_id = kfx_core::project::resolve_id(&pool, project)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(project.to_owned()))?;
+
+    let item_id = kfx_core::cart::add_to_cart(&pool, &project_id, snippet_id)
         .await
         .map_err(cart_error)?;
 
@@ -673,7 +683,7 @@ async fn cart_add(snippet_id: &str, project_id: &str, db: &str) -> Result<(), Cl
     Ok(())
 }
 
-async fn cart_list(project_id: &str, db: &str) -> Result<(), CliError> {
+async fn cart_list(project: &str, db: &str) -> Result<(), CliError> {
     let path = shellexpand(db);
     let config = storage_config(&path);
 
@@ -684,7 +694,13 @@ async fn cart_list(project_id: &str, db: &str) -> Result<(), CliError> {
         .await
         .map_err(|error| CliError::Database(error.to_string()))?;
 
-    let items = kfx_core::cart::list_cart(&pool, project_id)
+    // The cart stores a project id; the user names a project by id or by slug.
+    let project_id = kfx_core::project::resolve_id(&pool, project)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(project.to_owned()))?;
+
+    let items = kfx_core::cart::list_cart(&pool, &project_id)
         .await
         .map_err(cart_error)?;
 
@@ -693,7 +709,7 @@ async fn cart_list(project_id: &str, db: &str) -> Result<(), CliError> {
         return Ok(());
     }
 
-    println!("{:<38} {:<8} KIND", "ITEM ID", "TYPE");
+    println!("{:<38} {:<8} TEXT", "ITEM ID", "KIND");
     for item in &items {
         println!(
             "{:<38} {:<8} {}",
@@ -706,7 +722,7 @@ async fn cart_list(project_id: &str, db: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-async fn cart_remove(item_id: &str, project_id: &str, db: &str) -> Result<(), CliError> {
+async fn cart_remove(item_id: &str, project: &str, db: &str) -> Result<(), CliError> {
     let path = shellexpand(db);
     let config = storage_config(&path);
 
@@ -717,7 +733,13 @@ async fn cart_remove(item_id: &str, project_id: &str, db: &str) -> Result<(), Cl
         .await
         .map_err(|error| CliError::Database(error.to_string()))?;
 
-    kfx_core::cart::remove_from_cart(&pool, project_id, item_id)
+    // The cart stores a project id; the user names a project by id or by slug.
+    let project_id = kfx_core::project::resolve_id(&pool, project)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(project.to_owned()))?;
+
+    kfx_core::cart::remove_from_cart(&pool, &project_id, item_id)
         .await
         .map_err(cart_error)?;
 
@@ -725,7 +747,7 @@ async fn cart_remove(item_id: &str, project_id: &str, db: &str) -> Result<(), Cl
     Ok(())
 }
 
-async fn cart_commit(project_id: &str, db: &str) -> Result<(), CliError> {
+async fn cart_commit(project: &str, db: &str) -> Result<(), CliError> {
     let path = shellexpand(db);
     let config = storage_config(&path);
 
@@ -736,7 +758,13 @@ async fn cart_commit(project_id: &str, db: &str) -> Result<(), CliError> {
         .await
         .map_err(|error| CliError::Database(error.to_string()))?;
 
-    let committed = kfx_core::cart::commit_cart(&pool, project_id)
+    // The cart stores a project id; the user names a project by id or by slug.
+    let project_id = kfx_core::project::resolve_id(&pool, project)
+        .await
+        .map_err(project_error)?
+        .ok_or_else(|| CliError::NotFound(project.to_owned()))?;
+
+    let committed = kfx_core::cart::commit_cart(&pool, &project_id)
         .await
         .map_err(cart_error)?;
 
