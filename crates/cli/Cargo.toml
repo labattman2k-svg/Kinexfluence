@@ -3,6 +3,9 @@ name = "kfx-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# The source is proprietary. See LICENSE. This is the safeguard that
+# keeps it off crates.io, and it must not be removed.
+publish = false
 
 [[bin]]
 name = "kinexfluence"

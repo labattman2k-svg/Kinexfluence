@@ -197,6 +197,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scorer rather than another opinion from it, and letting a floored 0.90 into
   the calibration would push the green edge up to its nominal 0.70 and paint
   every other snippet in the list grey
+- The licence is proprietary, not AGPL-3.0-or-later. `LICENSE` replaces the
+  copyleft terms with a non-commercial evaluation licence: you may run the
+  software and use its output, and nothing else. The workspace's `license`
+  field is now `LicenseRef-Proprietary`, every crate sets `publish = false`
+  so the source can never reach a public registry, and `deny.toml` no longer
+  tolerates an AGPL dependency. The versions already published under AGPL
+  keep their AGPL grant; see section 6 of the `LICENSE` file.
 
 ### Fixed
 - `add_to_cart` and `remove_from_cart` now write to `event_log`, which
