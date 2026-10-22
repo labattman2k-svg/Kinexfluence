@@ -357,19 +357,14 @@ async fn list_pending_can_be_narrowed_to_one_project(pool: SqlitePool) {
     let (project_id, snippet_id) = make_target(&pool).await;
     let other = make_project(&pool, "Other Project").await;
 
-    let mut unanswered = settled_probe(&snippet_id, &project_id);
-    unanswered.status = None;
-    unanswered.answers = Vec::new();
-    submit_probe(&pool, unanswered)
-        .await
-        .expect("the probe should be accepted");
-
-    let mut elsewhere = settled_probe(&snippet_id, &other);
-    elsewhere.status = None;
-    elsewhere.answers = Vec::new();
-    submit_probe(&pool, elsewhere)
-        .await
-        .expect("the probe should be accepted");
+    for project in [&project_id, &other] {
+        let mut probe = settled_probe(&snippet_id, project);
+        probe.status = None;
+        probe.answers = Vec::new();
+        submit_probe(&pool, probe)
+            .await
+            .expect("the probe should be accepted");
+    }
 
     let all = list_pending(&pool, None)
         .await
