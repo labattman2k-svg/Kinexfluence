@@ -212,6 +212,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the source can never reach a public registry, and `deny.toml` no longer
   tolerates an AGPL dependency. The versions already published under AGPL
   keep their AGPL grant; see section 6 of the `LICENSE` file.
+- CI `rust` job: the ubuntu leg caches the downloaded webkit and GTK
+  development packages with `actions/cache` instead of fetching them from the
+  apt mirror on every run. The install was 24 minutes of a 26 minute job, so
+  the job was mostly waiting on a package mirror. The first run on a branch is
+  a cache miss and is no faster than before; the second run is where the
+  saving appears.
 
 ### Fixed
 - `add_to_cart` and `remove_from_cart` now write to `event_log`, which

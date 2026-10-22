@@ -12,6 +12,40 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # The webkit and GTK development packages used to be installed with a raw
+      # `apt-get install`, and that was the whole cost of this job: on
+      # ubuntu-latest it took 24 minutes of a 26 minute run, before a single
+      # line of Rust was compiled. The compiled part was cheap because the
+      # cargo cache was already warm.
+      #
+      # The downloaded packages are cached, so apt installs from the local
+      # copy instead of fetching them from the mirror every time. The runner
+      # image only runs `apt-get clean` when the image is built, so the files
+      # are still in the archives directory for the length of the job.
+      #
+      # The key carries a version. Bump it when the package list below
+      # changes: apt would otherwise install what is cached and ignore the
+      # new packages.
+      #
+      # Only the .deb files are cached. The archives directory also holds apt's
+      # own lock file and its `partial` directory, and restoring a stale lock
+      # is a way to have apt refuse to run at all.
+      #
+      # The archives directory is root-owned and the cache action's restore
+      # runs as the unprivileged runner user, so the restore cannot write
+      # there until the directory is opened up. Without this step the restore
+      # fails with "Permission denied" for every package, apt downloads the
+      # lot again, and the cache does nothing at all -- while the job still
+      # passes, because a failed restore is a warning and not an error.
+      - name: Let the runner user write to the apt archives directory
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo chmod o+w /var/cache/apt/archives
+      - name: Cache the apt package downloads
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v6
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: apt-${{ runner.os }}-webkit-gtk-v1
       - name: Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
