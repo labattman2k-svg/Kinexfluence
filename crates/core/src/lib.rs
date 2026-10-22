@@ -4,6 +4,7 @@ pub mod cart;
 pub mod config;
 pub mod embeddings;
 pub mod error;
+pub mod exporter;
 pub mod normalizer;
 pub mod probe;
 pub mod project;

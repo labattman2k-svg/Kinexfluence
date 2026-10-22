@@ -156,6 +156,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Probe E2E test (`ui/tests/e2e/probe-flow.spec.ts`): probes a low-scoring
   snippet and checks the floor reaches the score the server computes, then
   answers a probe from the queue and checks the same
+- The context pack (`crates/core/src/exporter.rs`): a project's committed
+  context, rendered as Markdown, so it can be read in a terminal, pasted into
+  a prompt, or committed to a repository. Only committed items are in a pack
+  -- an item in the cart is a candidate, not context. Prose is grouped into
+  decisions, constraints, open questions and notes, and code is fenced with
+  its language, in a fence long enough to hold the backticks inside it
+- `GET /v1/projects/:id_or_slug/export` returns the pack as `text/markdown`,
+  and `kinexfluence project export <id_or_slug> --out <file>` writes it to a
+  file, or to standard output when no file is named
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
