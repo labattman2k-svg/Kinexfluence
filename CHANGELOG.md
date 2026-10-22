@@ -148,6 +148,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rationale`, and `confidence` columns, so the mechanism needed no new
   schema
 - API client methods: `getPendingProbes`, `submitProbe`, and `answerProbe`
+- Ticking a snippet the scorer puts in the low band opens the probe modal
+  instead of selecting it. A snippet the scorer thinks is worth nothing is
+  the one the user is most likely to be right about, and the probe is how
+  that disagreement is recorded. A tick that is not a disagreement is left
+  alone
+- The probe queue: the probes in the project that are still waiting for an
+  answer, each with the snippet it is about. Answering one settles it and
+  puts the floor under that snippet
+- The score breakdown shows the probe floor beside the signals when there is
+  one, so a reader can see that the ranking was overruled by the user and
+  not by the scorer
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
@@ -164,6 +175,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the queue for one project does not have to fetch the queue for every project
   and throw most of it away. The filter is applied by the engine rather than by
   the client, so the rule lives in one place
+- The score bands are calibrated from the snippets the scorer scored, leaving
+  out the ones a probe has floored. A floor is the user's override of the
+  scorer rather than another opinion from it, and letting a floored 0.90 into
+  the calibration would push the green edge up to its nominal 0.70 and paint
+  every other snippet in the list grey
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x

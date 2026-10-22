@@ -3,9 +3,12 @@ import {
   listScoredSnippets,
   getCart,
   addToCart,
+  getPendingProbes,
   type ScoredSnippet,
   type CartItem,
+  type Probe,
 } from "../lib/api";
+import { ProbeModal, type ProbeTarget } from "./ProbeModal";
 
 interface Props {
   projectId: string;
@@ -58,9 +61,16 @@ export interface ScoreBands {
  *
  * Exported so the calibration is inspectable and testable rather than buried
  * in a component.
+ *
+ * A snippet the user has floored is left out of the calculation. The floor
+ * is the user's override of the scorer, not another opinion from it, and
+ * letting a floored 0.90 into the calibration would push the green edge up
+ * to its nominal 0.70 and paint every other snippet in the list grey.
  */
 export function scoreBands(snippets: ScoredSnippet[]): ScoreBands {
-  const best = snippets.reduce((max, snippet) => Math.max(max, snippet.score), 0);
+  const unfloored = snippets.filter((s) => s.score_details.probe_floor === null);
+  const calibration = unfloored.length > 0 ? unfloored : snippets;
+  const best = calibration.reduce((max, snippet) => Math.max(max, snippet.score), 0);
   return {
     green: Math.min(NOMINAL_GREEN, Math.max(MIN_SIGNAL, best * GREEN_SHARE)),
     amber: Math.min(NOMINAL_AMBER, Math.max(MIN_SIGNAL, best * AMBER_SHARE)),
@@ -123,8 +133,14 @@ function without<T>(member: T): (current: Set<T>) => Set<T> {
   };
 }
 
-/** The signals shown in the breakdown, in the order a reader wants them. */
-const BREAKDOWN: { key: keyof ScoredSnippet["score_details"]; label: string }[] = [
+/**
+ * The signals shown in the breakdown, in the order a reader wants them.
+ *
+ * The keys are named rather than derived from `keyof ScoreDetails`, because
+ * that type also covers `score` and `probe_floor`, which are not signals and
+ * are not all numbers.
+ */
+const BREAKDOWN: { key: "code" | "marker" | "entity" | "position"; label: string }[] = [
   { key: "code", label: "Code" },
   { key: "marker", label: "Markers" },
   { key: "entity", label: "Entities" },
@@ -146,11 +162,32 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The probes in this project that are still waiting for an answer.
+  const [pendingProbes, setPendingProbes] = useState<Probe[]>([]);
+  // The probe the user is being asked about, if the modal is open.
+  const [probeTarget, setProbeTarget] = useState<ProbeTarget | null>(null);
+  // Bumped when a probe is answered, so the queue is fetched again.
+  const [probeReloadToken, setProbeReloadToken] = useState(0);
 
   // The cart membership as of the last fetch, in a ref rather than state
   // because it is only ever compared against the next fetch to work out what
   // left the cart -- it is not rendered.
   const previousCartIds = useRef<Set<string>>(new Set());
+
+  /**
+   * Apply a fresh list of scored snippets.
+   *
+   * The scores, the cleared error, and the auto-selection, which are all
+   * decided together: the high band starts checked, so a user who trusts
+   * the score has only to confirm rather than pick. It is a default, not a
+   * decision: the cart still waits for the button below.
+   */
+  const applyScored = (found: ScoredSnippet[]) => {
+    setSnippets(found);
+    setError(null);
+    const next = scoreBands(found);
+    setSelected(new Set(found.filter((s) => s.score >= next.green).map((s) => s.id)));
+  };
 
   // Fetch scored snippets on mount
   useEffect(() => {
@@ -160,14 +197,7 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
     listScoredSnippets(projectId)
       .then((found) => {
         if (cancelled) return;
-        setSnippets(found);
-        setError(null);
-
-        // The high band starts checked, so a user who trusts the score has
-        // only to confirm rather than pick. It is a default, not a decision:
-        // the cart still waits for the button below.
-        const bands = scoreBands(found);
-        setSelected(new Set(found.filter((s) => s.score >= bands.green).map((s) => s.id)));
+        applyScored(found);
       })
       .catch((cause: Error) => {
         if (!cancelled) setError(cause.message);
@@ -180,6 +210,38 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
       cancelled = true;
     };
   }, [projectId]);
+
+  /**
+   * Re-read the scores.
+   *
+   * A probe puts a floor under a score, so the scores have to be read again
+   * once one is answered -- otherwise the list would keep showing the number
+   * the scorer gave for a snippet the user has since overruled.
+   */
+  const reloadScored = async () => {
+    try {
+      applyScored(await listScoredSnippets(projectId));
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  // Fetch the probes still waiting for an answer
+  useEffect(() => {
+    let cancelled = false;
+
+    getPendingProbes(projectId)
+      .then((probes) => {
+        if (!cancelled) setPendingProbes(probes);
+      })
+      .catch((cause: Error) => {
+        if (!cancelled) console.error("Failed to fetch pending probes:", cause);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, probeReloadToken]);
 
   // Fetch cart when project or reload token changes
   useEffect(() => {
@@ -247,16 +309,58 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
     [selectedIds, inCart]
   );
 
-  const handleToggle = (snippetId: string) => {
-    const isSelected = selectedIds.has(snippetId);
+  const handleToggle = (snippet: ScoredSnippet) => {
+    const isSelected = selectedIds.has(snippet.id);
 
     if (isSelected) {
-      setSelected(without(snippetId));
-      setDismissed((current) => new Set([...current, snippetId]));
-    } else {
-      setDismissed(without(snippetId));
-      setSelected((current) => new Set([...current, snippetId]));
+      setSelected(without(snippet.id));
+      setDismissed((current) => new Set([...current, snippet.id]));
+      return;
     }
+
+    // The scorer and the user disagreeing is the case the probe mechanism
+    // exists for. A snippet the scorer thinks is worth nothing is the one
+    // the user is most likely to be right about, so the tick is turned into
+    // a question rather than taken at face value.
+    if (bandFor(snippet.score, bands) === "low") {
+      setProbeTarget({
+        kind: "snippet",
+        snippetId: snippet.id,
+        text: snippet.text,
+        score: snippet.score,
+      });
+      return;
+    }
+
+    setDismissed(without(snippet.id));
+    setSelected((current) => new Set([...current, snippet.id]));
+  };
+
+  /**
+   * The text of the snippet a pending probe is about.
+   *
+   * A probe names an item rather than a snippet, and a probe puts the item
+   * in the cart, so the cart already holds the text. Showing it is what
+   * makes the queue worth reading.
+   */
+  const queueText = (probe: Probe) => {
+    const item = cartItems.find((entry) => entry.item_id === probe.item_id);
+    if (!item) return probe.trigger;
+    return item.text.slice(0, 160) + (item.text.length > 160 ? "…" : "");
+  };
+
+  /**
+   * What happens once a probe has been answered.
+   *
+   * The scores are read again because the floor has moved one of them, the
+   * cart is reloaded because the answered item is now in it, and the queue is
+   * fetched again because the probe is no longer waiting.
+   */
+  const handleProbeAnswered = () => {
+    setProbeTarget(null);
+    setProbeReloadToken((token) => token + 1);
+    onCartChanged();
+    void reloadScored();
   };
 
   const handleAddToCart = async () => {
@@ -295,6 +399,30 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
         </p>
       )}
 
+      {pendingProbes.length > 0 && (
+        <div className="kfx-probe-queue" data-testid="probe-queue">
+          <h3 className="kfx-probe-queue-title">
+            {pendingProbes.length} probe{pendingProbes.length === 1 ? "" : "s"} waiting
+            for an answer
+          </h3>
+          <ul className="kfx-list">
+            {pendingProbes.map((probe) => (
+              <li key={probe.id} className="kfx-list-item">
+                <div className="kfx-probe-queue-item">
+                  <span className="kfx-probe-queue-text">{queueText(probe)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setProbeTarget({ kind: "pending", probe })}
+                  >
+                    Answer
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {loading && <p className="kfx-muted">Loading…</p>}
 
       {!loading && snippets.length === 0 && (
@@ -305,6 +433,7 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
         <ul className="kfx-list">
           {snippets.map((snippet) => {
             const band = bandFor(snippet.score, bands);
+            const probeFloor = snippet.score_details.probe_floor;
             const panelId = `kfx-score-panel-${snippet.id}`;
             const panelOpen =
               hoverId === snippet.id || focusId === snippet.id || pinnedId === snippet.id;
@@ -314,7 +443,7 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
                 <input
                   type="checkbox"
                   checked={selectedIds.has(snippet.id)}
-                  onChange={() => handleToggle(snippet.id)}
+                  onChange={() => handleToggle(snippet)}
                   id={`snippet-${snippet.id}`}
                 />
                 <label htmlFor={`snippet-${snippet.id}`} className="kfx-list-content">
@@ -363,6 +492,12 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
                           <dd>{snippet.score_details[key].toFixed(2)}</dd>
                         </div>
                       ))}
+                      {probeFloor !== null && (
+                        <div className="kfx-score-row">
+                          <dt>Probe floor</dt>
+                          <dd>{probeFloor.toFixed(2)}</dd>
+                        </div>
+                      )}
                     </dl>
                     <p className="kfx-score-note">
                       Novelty and provenance are stubbed at 0.50 until semantic
@@ -374,6 +509,15 @@ export function SnippetList({ projectId, cartReloadToken, onCartChanged }: Props
             );
           })}
         </ul>
+      )}
+
+      {probeTarget && (
+        <ProbeModal
+          projectId={projectId}
+          target={probeTarget}
+          onClose={() => setProbeTarget(null)}
+          onAnswered={handleProbeAnswered}
+        />
       )}
     </section>
   );
