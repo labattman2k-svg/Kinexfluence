@@ -793,6 +793,53 @@ async fn list_pending_probes_returns_the_unanswered_ones(pool: SqlitePool) {
 }
 
 #[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_pending_probes_can_be_narrowed_to_a_project(pool: SqlitePool) {
+    let project = create(&pool, "Probe Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let other = create(&pool, "Other Project").await;
+    let other_id = other["id"].as_str().expect("id");
+    let snippet_id = make_snippet(&pool, "a snippet worth keeping").await;
+
+    // An unanswered probe in each project.
+    for id in [project_id, other_id] {
+        let (status, _) = call(
+            &pool,
+            Method::POST,
+            "/v1/probes",
+            Some(probe_body(&snippet_id, id, None)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    // Without a filter, the queue carries both.
+    let (status, body) = call(&pool, Method::GET, "/v1/probes/pending", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.as_array().expect("array").len(),
+        2,
+        "an unfiltered queue carries every project's probes: {body}"
+    );
+
+    // With one, it carries only that project's.
+    let (status, body) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/probes/pending?project_id={project_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let list = body.as_array().expect("array");
+    assert_eq!(
+        list.len(),
+        1,
+        "a project's queue should not carry another project's probes: {body}"
+    );
+    assert_eq!(list[0]["project_id"], project_id);
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
 async fn answer_probe_settles_it_and_applies_the_floor(pool: SqlitePool) {
     let project = create(&pool, "Probe Project").await;
     let project_id = project["id"].as_str().expect("id");

@@ -324,7 +324,7 @@ async fn list_pending_returns_the_probes_that_are_not_settled(pool: SqlitePool) 
         .await
         .expect("the probe should be accepted");
 
-    let pending_probes = list_pending(&pool)
+    let pending_probes = list_pending(&pool, None)
         .await
         .expect("the probes should be listable");
 
@@ -343,13 +343,48 @@ async fn list_pending_returns_the_probes_that_are_not_settled(pool: SqlitePool) 
 
 #[sqlx::test(migrations = "../../schema/migrations")]
 async fn list_pending_is_empty_when_there_is_nothing_to_answer(pool: SqlitePool) {
-    let probes = list_pending(&pool)
+    let probes = list_pending(&pool, None)
         .await
         .expect("the probes should be listable");
     assert!(
         probes.is_empty(),
         "an empty probe table is an empty list, not an error: {probes:?}"
     );
+}
+
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn list_pending_can_be_narrowed_to_one_project(pool: SqlitePool) {
+    let (project_id, snippet_id) = make_target(&pool).await;
+    let other = make_project(&pool, "Other Project").await;
+
+    let mut unanswered = settled_probe(&snippet_id, &project_id);
+    unanswered.status = None;
+    unanswered.answers = Vec::new();
+    submit_probe(&pool, unanswered)
+        .await
+        .expect("the probe should be accepted");
+
+    let mut elsewhere = settled_probe(&snippet_id, &other);
+    elsewhere.status = None;
+    elsewhere.answers = Vec::new();
+    submit_probe(&pool, elsewhere)
+        .await
+        .expect("the probe should be accepted");
+
+    let all = list_pending(&pool, None)
+        .await
+        .expect("the probes should be listable");
+    assert_eq!(all.len(), 2, "both projects have a probe waiting");
+
+    let mine = list_pending(&pool, Some(&project_id))
+        .await
+        .expect("the probes should be listable");
+    assert_eq!(
+        mine.len(),
+        1,
+        "a project's queue should not carry another project's probes: {mine:?}"
+    );
+    assert_eq!(mine[0].project_id, project_id);
 }
 
 // ---------------------------------------------------------------------------

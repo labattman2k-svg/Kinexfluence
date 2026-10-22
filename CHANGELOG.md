@@ -153,6 +153,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   happens to visit cannot read their projects
 - The Atlas UI discovers the core's port (probing 47821-47830 and caching the
   answer) instead of assuming 47821, which the core only uses when it is free
+- `GET /v1/probes/pending` takes an optional `?project_id=`, so a client showing
+  the queue for one project does not have to fetch the queue for every project
+  and throw most of it away. The filter is applied by the engine rather than by
+  the client, so the rule lives in one place
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x
