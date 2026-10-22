@@ -445,12 +445,23 @@ async fn resolve_target(
 /// `CURRENT_TIMESTAMP` has one-second resolution, so two probes raised in
 /// the same second would otherwise come back in whatever order SQLite felt
 /// like.
-pub async fn list_pending(pool: &SqlitePool) -> Result<Vec<Probe>, ProbeError> {
+///
+/// `project_id` narrows the list to one project, so a client showing one
+/// project's queue does not fetch every project's. The filter lives here
+/// rather than in the client, so the rule is in one place.
+pub async fn list_pending(
+    pool: &SqlitePool,
+    project_id: Option<&str>,
+) -> Result<Vec<Probe>, ProbeError> {
     let sql = format!(
-        "SELECT {COLUMNS} FROM probe WHERE status IS NULL OR status != ? ORDER BY created_at, id"
+        "SELECT {COLUMNS} FROM probe
+         WHERE (status IS NULL OR status != ?) AND (? IS NULL OR project_id = ?)
+         ORDER BY created_at, id"
     );
     let probes = sqlx::query_as::<_, Probe>(&sql)
         .bind(STATUS_SETTLED)
+        .bind(project_id)
+        .bind(project_id)
         .fetch_all(pool)
         .await?;
     Ok(probes)

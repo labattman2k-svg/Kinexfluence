@@ -480,10 +480,19 @@ async fn submit_probe(
     Ok((StatusCode::CREATED, Json(probe.into())))
 }
 
+/// The body `GET /v1/probes/pending` accepts as query params.
+#[derive(Debug, Deserialize)]
+pub struct ListPendingProbesQuery {
+    /// The project to narrow the queue to. Absent means every project.
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
 async fn list_pending_probes(
     State(pool): State<SqlitePool>,
+    axum::extract::Query(query): axum::extract::Query<ListPendingProbesQuery>,
 ) -> Result<Json<Vec<ProbeResponse>>, ApiError> {
-    let probes = probe::list_pending(&pool).await?;
+    let probes = probe::list_pending(&pool, query.project_id.as_deref()).await?;
     Ok(Json(probes.into_iter().map(Into::into).collect()))
 }
 
