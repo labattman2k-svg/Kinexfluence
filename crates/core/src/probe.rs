@@ -446,18 +446,16 @@ async fn resolve_target(
 /// the same second would otherwise come back in whatever order SQLite felt
 /// like.
 ///
-/// `project_id` narrows the list to one project. A client that is showing the
-/// queue for a project should not have to fetch the queue for every project
-/// and throw most of it away, and the filter belongs here rather than in the
-/// client for the same reason the rest of the rules do: one place decides.
+/// `project_id` narrows the list to one project, so a client showing one
+/// project's queue does not fetch every project's. The filter lives here
+/// rather than in the client, so the rule is in one place.
 pub async fn list_pending(
     pool: &SqlitePool,
     project_id: Option<&str>,
 ) -> Result<Vec<Probe>, ProbeError> {
     let sql = format!(
         "SELECT {COLUMNS} FROM probe
-         WHERE (status IS NULL OR status != ?)
-           AND (? IS NULL OR project_id = ?)
+         WHERE (status IS NULL OR status != ?) AND (? IS NULL OR project_id = ?)
          ORDER BY created_at, id"
     );
     let probes = sqlx::query_as::<_, Probe>(&sql)

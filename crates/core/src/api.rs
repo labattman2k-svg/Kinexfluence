@@ -483,8 +483,7 @@ async fn submit_probe(
 /// The body `GET /v1/probes/pending` accepts as query params.
 #[derive(Debug, Deserialize)]
 pub struct ListPendingProbesQuery {
-    /// The project to narrow the queue to. Absent means every project, which
-    /// is what a caller that is not working on one project wants.
+    /// The project to narrow the queue to. Absent means every project.
     #[serde(default)]
     pub project_id: Option<String>,
 }

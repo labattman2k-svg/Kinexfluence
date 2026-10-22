@@ -169,9 +169,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Atlas UI discovers the core's port (probing 47821-47830 and caching the
   answer) instead of assuming 47821, which the core only uses when it is free
 - `GET /v1/probes/pending` takes an optional `?project_id=`, so a client showing
-  the queue for one project does not have to fetch the queue for every project
-  and throw most of it away. The filter is applied by the engine rather than by
-  the client, so the rule lives in one place
+  one project's queue does not have to fetch every project's and throw most of
+  it away. The filter lives in the engine, not the client, so the rule is in
+  one place
 - The score bands are calibrated from the snippets the scorer scored, leaving
   out the ones a probe has floored. A floor is the user's override of the
   scorer rather than another opinion from it, and letting a floored 0.90 into
