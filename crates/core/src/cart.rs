@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 
+use crate::project::ACTOR_USER;
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CartItem {
     pub item_id: String,
@@ -24,6 +26,9 @@ pub enum CartError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 }
+
+/// The entity type recorded in `event_log` for a committed item.
+const ENTITY_ITEM_PROJECT: &str = "item_project";
 
 /// Get or create an item from a snippet.
 async fn get_or_create_item(pool: &SqlitePool, snippet_id: &str) -> Result<String, CartError> {
@@ -181,5 +186,80 @@ pub async fn remove_from_cart(
         return Err(CartError::Database(sqlx::Error::RowNotFound));
     }
 
+    Ok(())
+}
+
+/// Commit a project's cart: every item in it becomes project context.
+///
+/// An item in the cart is a candidate; a committed item is part of the
+/// project's context, and the context pack is built from the committed ones.
+/// This is the step that turns a list of possibilities into the project's
+/// memory, so it is the one step the user takes deliberately.
+///
+/// Returns the number of items committed. Committing an empty cart is not an
+/// error: it commits nothing, and says so.
+pub async fn commit_cart(pool: &SqlitePool, project_id: &str) -> Result<usize, CartError> {
+    // The project is checked the way `add_to_cart` checks it, so a commit for
+    // a project that does not exist is an error rather than a silent zero.
+    let project_exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM project WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+
+    if project_exists.is_none() {
+        return Err(CartError::ProjectNotFound(project_id.to_string()));
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // The items are read before the update, because each one has to be
+    // logged: the standard says a mutation of `item_project` must be
+    // reconstructable.
+    let item_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT item_id FROM item_project WHERE project_id = ? AND status = 'cart'",
+    )
+    .bind(project_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for item_id in &item_ids {
+        sqlx::query(
+            "UPDATE item_project SET status = 'committed', committed_at = CURRENT_TIMESTAMP
+             WHERE item_id = ? AND project_id = ?",
+        )
+        .bind(item_id)
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        log_commit(&mut tx, item_id, project_id).await?;
+    }
+
+    tx.commit().await?;
+    Ok(item_ids.len())
+}
+
+/// Write one `event_log` row for a committed item.
+///
+/// The standard names `item_project` among the entities whose mutations must
+/// be reconstructable, and a commit changes one: the item's status, and the
+/// moment it changed.
+async fn log_commit(
+    tx: &mut Transaction<'_, Sqlite>,
+    item_id: &str,
+    project_id: &str,
+) -> Result<(), CartError> {
+    sqlx::query(
+        "INSERT INTO event_log (id, entity_type, entity_id, action, actor, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(ENTITY_ITEM_PROJECT)
+    .bind(item_id)
+    .bind("committed")
+    .bind(ACTOR_USER)
+    .bind(serde_json::json!({ "project_id": project_id }).to_string())
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
