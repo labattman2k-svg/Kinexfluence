@@ -30,6 +30,16 @@ jobs:
       # Only the .deb files are cached. The archives directory also holds apt's
       # own lock file and its `partial` directory, and restoring a stale lock
       # is a way to have apt refuse to run at all.
+      #
+      # The archives directory is root-owned and the cache action's restore
+      # runs as the unprivileged runner user, so the restore cannot write
+      # there until the directory is opened up. Without this step the restore
+      # fails with "Permission denied" for every package, apt downloads the
+      # lot again, and the cache does nothing at all -- while the job still
+      # passes, because a failed restore is a warning and not an error.
+      - name: Let the runner user write to the apt archives directory
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo chmod o+w /var/cache/apt/archives
       - name: Cache the apt package downloads
         if: matrix.os == 'ubuntu-latest'
         uses: actions/cache@v6
