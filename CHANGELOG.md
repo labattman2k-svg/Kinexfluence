@@ -159,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The score breakdown shows the probe floor beside the signals when there is
   one, so a reader can see that the ranking was overruled by the user and
   not by the scorer
+- Probe E2E test (`ui/tests/e2e/probe-flow.spec.ts`): probes a low-scoring
+  snippet and checks the floor reaches the score the server computes, then
+  answers a probe from the queue and checks the same. The floor is asserted
+  against the API rather than against the badge, because a badge that said
+  0.90 while the server scored the snippet 0.08 would pass a visual test
+  and fail the user
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
