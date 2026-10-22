@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Email **security@kinexfluence.example** with a description, the affected
+Email labattman2k@gmail.com  with a description, the affected
 version or commit, and reproduction steps if you have them.
 
 > **This address is a placeholder.** It must be replaced with a monitored
