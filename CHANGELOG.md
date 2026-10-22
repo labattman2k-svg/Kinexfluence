@@ -141,6 +141,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually moves the item. A status the engine does not know is refused
   rather than stored, because a typo in `probe.status` would otherwise make
   the floor silently never apply
+- The probe modal (`ui/src/components/ProbeModal.tsx`): the four questions a
+  probe asks -- intent, impact, rationale, and confidence -- put to the user
+  when the scorer says a snippet does not matter and the user says it does.
+  The answers map onto the backend's `intent`, `impact`, `rationale`, and
+  `confidence` columns, so the mechanism needed no new schema
+- API client methods: `getPendingProbes`, `submitProbe`, and `answerProbe`
+- Ticking a snippet in the low band opens the probe modal instead of
+  selecting it: a snippet the scorer thinks is worth nothing is the one the
+  user is most likely to be right about
+- The probe queue: the probes in the project still waiting for an answer.
+  Answering one settles it and floors that snippet
+- The score breakdown shows the probe floor beside the signals
+- Probe E2E test (`ui/tests/e2e/probe-flow.spec.ts`): probes a low-scoring
+  snippet and checks the floor reaches the score the server computes, then
+  answers a probe from the queue and checks the same
 
 ### Changed
 - `sqlx` 0.7.4 -> 0.8.6 (RUSTSEC-2024-0363)
@@ -157,6 +172,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one project's queue does not have to fetch every project's and throw most of
   it away. The filter lives in the engine, not the client, so the rule is in
   one place
+- The score bands are calibrated from the snippets the scorer scored, leaving
+  out the ones a probe has floored. A floor is the user's override of the
+  scorer rather than another opinion from it, and letting a floored 0.90 into
+  the calibration would push the green edge up to its nominal 0.70 and paint
+  every other snippet in the list grey
 
 ### Fixed
 - Corrected docs: `-- no-transaction` is inert on SQLite in sqlx 0.8.x

@@ -281,6 +281,55 @@ textarea:focus-visible,
   font-size: 11px; line-height: 1.4; color: var(--kfx-muted);
 }
 
+/* Probe modal -- the question the user is asked when the scorer says a
+   snippet does not matter and the user says it does. */
+
+.kfx-modal-backdrop {
+  position: fixed; inset: 0; z-index: 50; padding: 24px;
+  background: rgba(0, 0, 0, 0.6); display: flex;
+  align-items: center; justify-content: center;
+}
+
+.kfx-modal {
+  background: var(--kfx-surface); border: 1px solid var(--kfx-border);
+  border-radius: 10px; padding: 20px; width: 100%; max-width: 520px;
+  max-height: 90vh; overflow-y: auto;
+}
+
+.kfx-modal h3 { margin: 0 0 4px; font-size: 15px; }
+.kfx-modal-lead { margin: 0 0 12px; color: var(--kfx-muted); font-size: 12px; }
+
+.kfx-modal-snippet {
+  margin: 0 0 12px; padding: 10px 12px; background: #0f1116;
+  border: 1px solid var(--kfx-border); border-radius: 6px;
+  font-size: 12px; color: var(--kfx-muted);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+.kfx-modal-questions {
+  margin: 0 0 12px; padding-left: 18px;
+  color: var(--kfx-muted); font-size: 12px;
+}
+
+.kfx-modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+}
+
+/* Probe queue -- the probes in this project still waiting for an answer. */
+
+.kfx-probe-queue {
+  margin-bottom: 16px; padding: 12px; border: 1px solid var(--kfx-accent);
+  border-radius: 8px; background: rgba(124, 196, 255, 0.06);
+}
+
+.kfx-probe-queue-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+.kfx-probe-queue-item { flex: 1; display: flex; align-items: center; gap: 12px; }
+
+.kfx-probe-queue-text {
+  flex: 1; font-size: 12px; color: var(--kfx-muted);
+  white-space: pre-wrap; word-break: break-word;
+}
+
 /* Cart Sidebar ----------------------------------------------------------- */
 
 .kfx-cart-sidebar {
