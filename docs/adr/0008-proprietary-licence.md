@@ -74,3 +74,7 @@ They have to be supplied before the software is distributed to anyone
 outside the maintainer's own machine. This is a known gap in the document,
 not a deliberate choice, and it is recorded here so that it is not
 mistaken for one.
+
+2026-10-24: Added `docs/THREAT_MODEL.md` to document the current security
+boundaries and unresolved risks; the legal jurisdiction, notice address,
+monitored disclosure contact, and usable PGP key remain outstanding.
