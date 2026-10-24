@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/sanitize-fixture.sh`, a best-effort fixture sanitizer
 - `SECURITY.md` disclosure policy stub, including an explicit note that the
   address and PGP key are placeholders
+- `docs/THREAT_MODEL.md`, documenting current data flows, trust boundaries,
+  controls, and unresolved security risks
 - Schema migrations for attachment status and conversation content hash
   (`0002_attachment_status.sql`, `0003_conversation_content_hash.sql`)
 - Migration patterns guide (`docs/migrations.md`)
@@ -212,6 +214,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the source can never reach a public registry, and `deny.toml` no longer
   tolerates an AGPL dependency. The versions already published under AGPL
   keep their AGPL grant; see section 6 of the `LICENSE` file.
+- CI `rust` job: the ubuntu leg caches the downloaded webkit and GTK
+  development packages with `actions/cache` instead of fetching them from the
+  apt mirror on every run. The install was 24 minutes of a 26 minute job, so
+  the job was mostly waiting on a package mirror. The first run on a branch is
+  a cache miss and is no faster than before; the second run is where the
+  saving appears.
 
 ### Fixed
 - The core refuses a request that carries an `Origin` it does not answer,

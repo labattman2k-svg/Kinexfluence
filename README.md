@@ -472,13 +472,15 @@ gap in the current tree, not a roadmap item.
   chats sit in a plaintext SQLite file. Anyone with access to your
   account can read it. Treat the database as sensitive.
 - **The server is unauthenticated.** It binds to loopback and checks the
-  origin, which stops a web page you visit from reading your projects. It
-  does not stop another program running as you, and there is no token.
-  The design calls for one at `~/.kinexfluence/token`; it does not exist.
+  origin through CORS, which limits what an ordinary web page can read. CORS
+  is not authentication and does not reject every request before it reaches
+  the server; a simple cross-origin write may still arrive. Another program
+  running as you can also call the API directly. The access token required by
+  `docs/STANDARDS.md` is not implemented.
 - **The `SECURITY.md` contact address and PGP key are placeholders.** There
-  is no monitored mailbox to report a vulnerability to.
-- **There is no threat model.** `docs/THREAT_MODEL.md` is referenced and
-  does not exist.
+  is no confirmed monitored mailbox or usable key for sensitive reports.
+- **Security limitations are documented, not eliminated.** See
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the current threat model.
 
 **Packaging and distribution**
 
@@ -501,22 +503,25 @@ gap in the current tree, not a roadmap item.
 
 ## Security and privacy
 
-**What leaves your machine: nothing.** There is no telemetry, no analytics,
-no crash reporting, and no network call other than to `127.0.0.1`. The
-embedding model runs locally through ONNX Runtime.
+**At runtime, there is no telemetry, analytics, or crash reporting.** The
+application's API traffic is local to `127.0.0.1`; it does not sync imported
+content to a remote service. Installation and development do use the network
+to fetch packages, the ONNX Runtime, and the pinned embedding model.
 
 **What is on your machine:** the SQLite database (plaintext), the embedding
 model (90 MB, fetched once), the ONNX Runtime binaries in the OS cache
 directory, and the build tree.
 
 **The origin check.** The core is loopback-only and allows three origins.
-That is a real protection against the common case -- a page you happen to
-be visiting reading your projects over CORS -- and it is not
-authentication. Any process running as you can talk to the core directly.
+The browser uses this CORS policy to decide whether a page can read API
+responses. It is not server-side authorization, does not block every simple
+request, and is not authentication. Any process running as you can talk to the
+core directly.
 
 **Reporting a problem.** `SECURITY.md` describes the policy, but its contact
-address and PGP key are placeholders that have to be replaced before the
-policy is worth anything.
+address is not confirmed as monitored and its PGP key is a placeholder. Do not
+send sensitive reports there or encrypt to that key until both are replaced.
+See the [threat model](docs/THREAT_MODEL.md) for the current security limits.
 
 ## Development
 

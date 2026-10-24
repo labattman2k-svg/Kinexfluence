@@ -52,8 +52,9 @@ Out of scope:
 
 ## Threat model
 
-`docs/THREAT_MODEL.md` is required before public beta by
-`docs/STANDARDS.md` section 5. It does not exist yet. Another known gap.
+See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the current data flows,
+trust boundaries, controls, and known risks. The disclosure address and PGP
+key above remain placeholders and must be made operational before public beta.
 
 ## Bug bounty
 
