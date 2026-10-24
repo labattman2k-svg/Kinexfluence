@@ -27,9 +27,29 @@ async fn call(
     uri: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    call_with_origin(pool, method, uri, body, None).await
+}
+
+/// One request through the router, with an `Origin` header.
+///
+/// The origin is optional because it decides something: a request that
+/// carries an origin the server does not answer is refused, and a request
+/// that carries none is answered. `None` is the second case, which is what
+/// `curl` and the CLI send.
+async fn call_with_origin(
+    pool: &SqlitePool,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+    origin: Option<&str>,
+) -> (StatusCode, Value) {
     let app = server::router(pool.clone(), None);
 
     let builder = Request::builder().method(method).uri(uri);
+    let builder = match origin {
+        Some(value) => builder.header("origin", value),
+        None => builder,
+    };
     let request = match body {
         Some(value) => builder
             .header("content-type", "application/json")
@@ -744,6 +764,134 @@ async fn commit_returns_404_for_a_missing_project(pool: SqlitePool) {
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "not_found");
+}
+
+// ---------------------------------------------------------------------------
+// the origin check, on the server's side of the wire
+// ---------------------------------------------------------------------------
+
+/// A page the user happens to be visiting must not be able to commit the
+/// user's cart.
+///
+/// The commit route takes no body, so a browser sends it as a CORS "simple
+/// request" -- no preflight -- and the write lands. The CORS layer hides the
+/// response from the page; it does not stop the request arriving. The server
+/// has to refuse it itself.
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn a_foreign_origin_cannot_commit_a_cart(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = seed_snippet(&pool, "worth keeping").await;
+
+    let (status, _) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, body) = call_with_origin(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/commit"),
+        None,
+        Some("https://evil.example"),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a page the user is visiting must not be able to commit their cart: {body}"
+    );
+
+    // The cart is untouched, which is the whole point of refusing it.
+    let (_, cart) = call(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}/cart"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        cart.as_array().map(|items| items.len()),
+        Some(1),
+        "the item must still be in the cart: {cart}"
+    );
+}
+
+/// A page the user happens to be visiting must not be able to read a project
+/// either.
+///
+/// The CORS layer already hides the response from such a page. The server
+/// refusing it as well is what makes the origin check a property of the
+/// server rather than a property of the browser.
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn a_foreign_origin_cannot_read_a_project(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+
+    let (status, body) = call_with_origin(
+        &pool,
+        Method::GET,
+        &format!("/v1/projects/{project_id}"),
+        None,
+        Some("https://evil.example"),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "an arbitrary page must not be able to read a project: {body}"
+    );
+}
+
+/// The UI's own origin is answered, so the app still works.
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn the_ui_origin_can_commit_a_cart(pool: SqlitePool) {
+    let project = create(&pool, "Test Project").await;
+    let project_id = project["id"].as_str().expect("id");
+    let snippet_id = seed_snippet(&pool, "worth keeping").await;
+
+    let (status, _) = call(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/cart"),
+        Some(json!({ "snippet_ids": [snippet_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, body) = call_with_origin(
+        &pool,
+        Method::POST,
+        &format!("/v1/projects/{project_id}/commit"),
+        None,
+        Some("http://localhost:5173"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "the commit should succeed: {body}");
+    assert_eq!(body["committed"], 1, "the count should come back: {body}");
+}
+
+/// A client that sends no `Origin` -- `curl`, a script, the CLI -- is
+/// answered.
+///
+/// It is not authenticated either, and that is a separate and larger gap, but
+/// refusing it here would break the API without addressing it.
+#[sqlx::test(migrations = "../../schema/migrations")]
+async fn a_request_without_an_origin_is_answered(pool: SqlitePool) {
+    let (status, body) = call(&pool, Method::GET, "/v1/projects", None).await;
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a client with no origin is not refused here: {body}"
+    );
 }
 
 // ---------------------------------------------------------------------------

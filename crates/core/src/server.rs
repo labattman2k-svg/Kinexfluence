@@ -1,4 +1,7 @@
-use axum::http::{header, HeaderValue, Method};
+use axum::extract::Request;
+use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::{routing::get, Json, Router};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -19,21 +22,82 @@ use crate::{Config, KfxResult};
 /// loopback-only but otherwise unauthenticated, so a permissive layer would let
 /// *any* page the user happens to visit read their projects and post new ones.
 /// §5 asks for an origin check, and this is it.
+const ALLOWED_ORIGINS: [&str; 3] = [
+    // `npm --prefix ui run dev`
+    "http://localhost:5173",
+    // Tauri's webview origin, which differs by platform.
+    "tauri://localhost",
+    "http://tauri.localhost",
+];
+
 fn cors_layer() -> CorsLayer {
     CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            // `npm --prefix ui run dev`
-            HeaderValue::from_static("http://localhost:5173"),
-            // Tauri's webview origin, which differs by platform.
-            HeaderValue::from_static("tauri://localhost"),
-            HeaderValue::from_static("http://tauri.localhost"),
-        ]))
+        .allow_origin(AllowOrigin::list(
+            ALLOWED_ORIGINS.map(HeaderValue::from_static),
+        ))
         // DELETE arrived with the cart routes. A browser preflights it, so
         // omitting it here means the request never reaches the handler: the
         // preflight fails, `fetch` rejects, and removing from the cart looks
         // like the server went away.
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
         .allow_headers([header::CONTENT_TYPE])
+}
+
+/// Whether an `Origin` header names an origin the server answers.
+fn origin_is_allowed(origin: &str) -> bool {
+    ALLOWED_ORIGINS.contains(&origin)
+        // A browser extension is exempt from CORS when it holds a host
+        // permission for the address it is asking for, so the extension that
+        // captures the provider's pages can reach the core without being
+        // named above. The browser is still the gate: without the host
+        // permission the request is subject to CORS like any other one, and
+        // the response comes back without the header that would let the
+        // extension read it. Nothing is given away here that the browser
+        // was not already going to hand over.
+        || origin.starts_with("chrome-extension://")
+}
+
+/// Refuses a request that carries an `Origin` the server does not answer.
+///
+/// The CORS layer already stops a *browser* from reading a response it should
+/// not, and refuses the preflight for a write that needs one. What it does
+/// not do is refuse the request: CORS is a rule the browser enforces, and the
+/// server answers a request that arrived.
+///
+/// That gap is narrow and it was real. A `POST` with no body, or with a
+/// safelisted content type, is a "simple request" in the CORS sense, and a
+/// browser sends it **without a preflight**. `POST /v1/projects/:id/commit`
+/// takes no body, so it was one of those: a page the user happened to have
+/// open could empty their cart, and could not even see the result.
+///
+/// This closes that, and closes it for the routes added later rather than
+/// the one that was found.
+///
+/// A request with no `Origin` header did not arrive on a browser's
+/// cross-origin path -- `curl` and the CLI do not send one -- and is let
+/// through. Those clients are not authenticated either, which is a larger and
+/// separate gap: the token `docs/STANDARDS.md` section 5 asks for is the fix
+/// for that, and refusing them here would break the API without touching the
+/// real problem.
+async fn reject_foreign_origin(request: Request, next: Next) -> Response {
+    if let Some(origin) = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        if !origin_is_allowed(origin) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "forbidden",
+                    "message": format!("this origin is not allowed to talk to the core: {origin}"),
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    next.run(request).await
 }
 
 /// The whole HTTP surface: health, plus the project routes from [`crate::api`].
@@ -49,6 +113,10 @@ pub fn router(pool: SqlitePool, embedder: Option<Arc<Embedder>>) -> Router {
         .route("/v1/health", get(health))
         .merge(crate::api::router(pool, embedder))
         .layer(cors_layer())
+        // Outside the CORS layer, so it runs first: a foreign origin is
+        // refused before the CORS layer gets a chance to answer a preflight
+        // for it.
+        .layer(axum::middleware::from_fn(reject_foreign_origin))
 }
 
 async fn health() -> Json<serde_json::Value> {

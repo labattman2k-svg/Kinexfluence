@@ -222,6 +222,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saving appears.
 
 ### Fixed
+- The core refuses a request that carries an `Origin` it does not answer,
+  rather than only withholding the response from it. CORS is a rule the
+  browser enforces, not the server, so a `POST` with no body -- a CORS
+  "simple request", which a browser sends with no preflight -- reached the
+  handler. `POST /v1/projects/:id/commit` takes no body, so a page the user
+  happened to have open could empty their cart, and could not even see the
+  result. A request with no `Origin` at all is still answered, because that
+  is what `curl` and the CLI send, and those clients are a separate and
+  larger gap: the token STANDARDS section 5 asks for is the fix for that
 - `add_to_cart` and `remove_from_cart` now write to `event_log`, which
   STANDARDS section 2 requires of every mutation to `item_project`. Each
   membership change is recorded as `created` or `deleted`, alongside the
